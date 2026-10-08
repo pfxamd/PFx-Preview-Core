@@ -201,3 +201,80 @@ test('concurrent close calls share one cleanup and keep the slot reserved', asyn
   assert.equal(counters.contextsClosed, 1);
   await core.stop();
 });
+
+test('queued resize cannot operate after its session was closed', async () => {
+  const { factory } = mockRuntime();
+  const core = new PreviewCore({ browserFactory: factory, validate: async u => u });
+  await core.start();
+  try {
+    const { id } = await core.create({ url: 'https://example.com', width: 390, height: 640 });
+    let calls = 0;
+    core.get(id).page.setViewportSize = async () => { calls++; };
+    const resizing = core.resize(id, { width: 600, height: 600 });
+    const closing = core.close(id);
+    await assert.rejects(resizing, /Session not found/);
+    await closing;
+    assert.equal(calls, 0);
+    assert.equal(core.allocatedPixels(), 0);
+    assert.equal(core.closingPixels, 0);
+  } finally { await core.stop(); }
+});
+
+test('close reserves a fixed pixel amount when an in-flight resize fails', async () => {
+  const { factory } = mockRuntime();
+  const core = new PreviewCore({ browserFactory: factory, validate: async u => u,
+    config: { maxSessions: 2, maxTotalPixels: 650_000 } });
+  await core.start();
+  let resolveResize;
+  const resizeGate = new Promise(resolve => { resolveResize = resolve; });
+  let started;
+  const didStart = new Promise(resolve => { started = resolve; });
+  let resolveClose;
+  const closeGate = new Promise(resolve => { resolveClose = resolve; });
+  try {
+    const { id } = await core.create({ url: 'https://example.com', width: 390, height: 640 });
+    const session = core.get(id);
+    const originalClose = session.context.close;
+    session.context.close = async () => { await closeGate; await originalClose(); };
+    session.page.setViewportSize = async () => {
+      started();
+      await resizeGate;
+      throw new Error('closed while resizing');
+    };
+    const resizing = core.resize(id, { width: 600, height: 600 });
+    await didStart;
+    assert.equal(core.allocatedPixels(), 360_000);
+    const closing = core.close(id);
+    resolveResize();
+    await assert.rejects(resizing, /closed while resizing/);
+    resolveClose();
+    await closing;
+    assert.equal(core.allocatedPixels(), 0);
+    assert.equal(core.closingPixels, 0);
+    assert.equal(core.inFlightCloses.size, 0);
+    const next = await core.create({ url: 'https://example.com', width: 600, height: 600 });
+    await core.close(next.id);
+    assert.equal(core.allocatedPixels(), 0);
+  } finally { resolveResize(); resolveClose(); await core.stop(); }
+});
+
+test('an in-flight resize cannot report success after the session closes', async () => {
+  const { factory } = mockRuntime();
+  const core = new PreviewCore({ browserFactory: factory, validate: async u => u });
+  await core.start();
+  let start;
+  const started = new Promise(resolve => { start = resolve; });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  try {
+    const { id } = await core.create({ url: 'https://example.com', width: 390, height: 640 });
+    core.get(id).page.setViewportSize = async () => { start(); await gate; };
+    const resizing = core.resize(id, { width: 600, height: 600 });
+    await started;
+    const closing = core.close(id);
+    release();
+    await assert.rejects(resizing, /Session not found/);
+    await closing;
+    assert.equal(core.allocatedPixels(), 0);
+  } finally { release(); await core.stop(); }
+});

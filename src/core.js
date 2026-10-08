@@ -206,6 +206,8 @@ export class PreviewCore {
     const session = this.get(id, owner);
     const previous = session.resizing || Promise.resolve();
     const operation = previous.catch(() => {}).then(async () => {
+      // A queued resize must not reopen work on a closing or stopped session.
+      if (this.sessions.get(id) !== session || this.stopping) throw new Error('Session not found');
       const pixels = dimensions.width * dimensions.height * (session.deviceScaleFactor || 1) ** 2;
       if (pixels > this.config.maxSessionPixels || this.allocatedPixels() - (session.pixels || 0) + pixels > this.config.maxTotalPixels) {
         throw new Error('Rendering pixel budget exceeded');
@@ -217,6 +219,7 @@ export class PreviewCore {
       session.pixels = pixels; // Reserve synchronously before async resize.
       try {
         await session.page.setViewportSize({ width: dimensions.width, height: dimensions.height });
+        if (this.sessions.get(id) !== session || this.stopping) throw new Error('Session not found');
         return { viewport: session.page.viewportSize() };
       } catch (error) { session.pixels = prior; throw error; }
     });
@@ -244,6 +247,7 @@ export class PreviewCore {
     // Authorization precedes DNS resolution and any outbound navigation work.
     const session = this.get(id, owner);
     const safeUrl = await this.validate(url);
+    if (this.sessions.get(id) !== session || this.stopping) throw new Error('Session not found');
     const loadedUrl = await this.loadPage(session.page, safeUrl);
     return { url: loadedUrl, httpStatus: this.navigationMetadata.get(session.page)?.httpStatus ?? null };
   }
@@ -273,6 +277,12 @@ export class PreviewCore {
     let cdp;
     try { cdp = await session.context.newCDPSession(session.page); }
     catch (error) { session.streamPending = false; throw error; }
+    // Closing a session while CDP is being allocated must never start a late stream.
+    if (this.sessions.get(id) !== session || this.stopping) {
+      session.streamPending = false;
+      await cdp.detach().catch(() => {});
+      throw new Error('Session not found');
+    }
     let closed = false;
     const onFrame = frame => {
       if (closed) return;
@@ -307,16 +317,17 @@ export class PreviewCore {
     this.sessions.delete(id);
     // A closing context still consumes capacity and pixels until OS resources
     // are actually released. Track it before yielding to asynchronous close.
-    this.closingPixels += session.pixels || 0;
+    const closingReservation = session.pixels || 0;
+    this.closingPixels += closingReservation;
     this.closingOwners.set(id, owner);
-    this.closingPixelReservations.set(id, { owner, pixels: session.pixels || 0 });
+    this.closingPixelReservations.set(id, { owner, pixels: closingReservation });
     const closing = (async () => {
       try {
         try { if (session.stream) await session.stream(); }
         finally { await session.context.close(); }
         return true;
       } finally {
-        this.closingPixels -= session.pixels || 0;
+        this.closingPixels -= closingReservation;
         this.inFlightCloses.delete(id);
         this.closingOwners.delete(id);
         this.closingPixelReservations.delete(id);

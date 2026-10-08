@@ -1,6 +1,6 @@
 # PFx Preview Core
 
-**Status:** `0.8.0-alpha.2` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.8.0-alpha.4` — experimental browser preview runtime. **Not safe for public deployment.**
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
@@ -166,3 +166,7 @@ closed if memory, CPU or PID limits are missing; a passing result is a
 preflight measurement, not a production security certificate. For mandatory
 checks at browser startup use `PFX_REQUIRE_OS_QUOTAS=1`. See
 `docs/OS-RESOURCE-VALIDATION.md`. The public server is still disabled.
+
+## Session lifecycle regression guards (`0.8.0-alpha.4`)
+
+Concurrent resize, stream establishment, navigation and session close are checked against the live session state after asynchronous work. Closing contexts retain a fixed rendering-pixel reservation until teardown completes, so failed in-flight resizes cannot corrupt global accounting. These are application lifecycle controls, **not** per-tenant kernel CPU/memory or process isolation. Tests cover queued/failed/completed resize races and late CDP navigation/stream allocation.

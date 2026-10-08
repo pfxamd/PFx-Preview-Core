@@ -274,3 +274,55 @@ test('HTTP tenant pixel exhaustion returns 409 and does not affect another tenan
     await fetch(`${base}/sessions/${bobId}`, options(bob, 'DELETE'));
   });
 });
+
+test('pending CDP allocation cannot start a stream after its session closes', async () => {
+  const { core } = makeCore();
+  await core.start();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let signalStart;
+  const started = new Promise(resolve => { signalStart = resolve; });
+  let detached = 0;
+  const commands = [];
+  try {
+    const { id } = await core.create({ url: 'https://example.com/', owner: 'alice' });
+    core.get(id, 'alice').context.newCDPSession = async () => {
+      signalStart();
+      await gate;
+      const cdp = new EventEmitter();
+      cdp.send = async command => { commands.push(command); };
+      cdp.detach = async () => { detached++; };
+      return cdp;
+    };
+    const streaming = core.stream(id, () => {}, {}, 'alice');
+    await started;
+    const closing = core.close(id, 'alice');
+    release();
+    await assert.rejects(streaming, /Session not found/);
+    await closing;
+    assert.equal(detached, 1);
+    assert.equal(commands.includes('Page.startScreencast'), false);
+    assert.equal(core.sessions.size, 0);
+  } finally { release(); await core.stop(); }
+});
+
+test('navigation awaiting URL validation cannot use a closed session', async () => {
+  const { core } = makeCore();
+  await core.start();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let signalStart;
+  const started = new Promise(resolve => { signalStart = resolve; });
+  try {
+    const { id } = await core.create({ url: 'https://example.com/', owner: 'alice' });
+    let navigations = 0;
+    core.get(id, 'alice').page.goto = async () => { navigations++; };
+    core.validate = async url => { signalStart(); await gate; return url; };
+    const navigating = core.navigate(id, 'https://example.org/', 'alice');
+    await started;
+    await core.close(id, 'alice');
+    release();
+    await assert.rejects(navigating, /Session not found/);
+    assert.equal(navigations, 0);
+  } finally { release(); await core.stop(); }
+});

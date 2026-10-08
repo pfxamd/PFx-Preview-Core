@@ -39,3 +39,7 @@ The default HTTP server listens on loopback only. Preserve this restriction. If 
 - These checks do **not** install quotas, provide per-tenant kernel isolation,
   or certify the service. See `docs/OS-RESOURCE-VALIDATION.md` for the actual
   production-host verification requirements.
+
+## Asynchronous close race hardening (`0.8.0-alpha.4`)
+
+A session close now prevents queued resizes, late URL validation results and delayed CDP allocations from opening additional work for an already closed session. Quota reservations are snapshotted before teardown to avoid drifting counts if an in-flight resize fails. These checks are verified in unit tests but are not a sandbox or a substitute for external security assessment.
