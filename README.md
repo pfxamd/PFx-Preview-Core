@@ -198,3 +198,13 @@ PNG response budget by default (`maxScreenshotBytes`, hard cap 64 MiB). Oversize
 screenshots return HTTP 413; overlapping requests return HTTP 409. A capture
 finishing after its session closed cannot deliver an image. These are response
 limits, not kernel memory/cgroup or per-tenant bandwidth guarantees.
+
+### Authenticated integration client (0.9.0-rc.2)
+
+`src/client.js` provides a local-only, dependency-free `PreviewClient` for the
+HTTP v1 contract. It authenticates requests using the `Authorization` header,
+parses the server's event-driven SSE frames through `fetch()` (native
+`EventSource` cannot attach that header), and cancels stream readers on cleanup.
+Run `npm run test:client` for its dedicated tests. Keep Core credentials in a
+trusted local process, **never** in public browser JavaScript or URL query
+parameters. See `docs/API-CONTRACT-v1.md` for the integration example.

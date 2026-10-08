@@ -1,6 +1,6 @@
 {
   "name": "@pfxamd/preview-core",
-  "version": "0.9.0-rc.1",
+  "version": "0.9.0-rc.2",
   "description": "Isolated browser preview runtime with interactive CDP streaming",
   "private": true,
   "type": "module",
@@ -10,15 +10,16 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "test:unit": "node --test test/tenants.test.js test/core.test.js test/lifecycle.test.js test/security.test.js test/egress.test.js test/resource-policy.test.js test/compatibility-audit.test.js test/stream-limits.test.js test/screenshot-limits.test.js test/api-contract.test.js",
+    "test:unit": "node --test test/tenants.test.js test/core.test.js test/lifecycle.test.js test/security.test.js test/egress.test.js test/resource-policy.test.js test/compatibility-audit.test.js test/stream-limits.test.js test/screenshot-limits.test.js test/api-contract.test.js test/client.test.js",
     "test:integration": "node --test test/integration.test.js test/server.test.js",
     "bench:load": "node scripts/load-profile.js",
     "bench:isolated": "node scripts/isolated-load.js",
-    "check": "node --check src/netns-relay.js && node --check src/host-bridge.js && node --check src/egress.js && node --check src/core.js && node --check src/security.js && node --check src/compatibility-audit.js && node --check src/server.js && node --check src/http.js && node --check src/auth.js && node --check src/resource-policy.js && bash -n src/sandbox-bootstrap.sh src/netns-launcher.sh && node --check scripts/soak.js && node --check scripts/compatibility.js && node --check scripts/audit-os-quotas.js",
+    "check": "node --check src/netns-relay.js && node --check src/host-bridge.js && node --check src/egress.js && node --check src/core.js && node --check src/security.js && node --check src/compatibility-audit.js && node --check src/server.js && node --check src/http.js && node --check src/auth.js && node --check src/resource-policy.js && bash -n src/sandbox-bootstrap.sh src/netns-launcher.sh && node --check scripts/soak.js && node --check scripts/compatibility.js && node --check scripts/audit-os-quotas.js && node --check src/client.js",
     "bench:soak": "node scripts/soak.js",
     "bench:compat": "node scripts/compatibility.js",
     "audit:os-quotas": "node scripts/audit-os-quotas.js",
-    "test:contract": "node --test test/api-contract.test.js"
+    "test:contract": "node --test test/api-contract.test.js",
+    "test:client": "node --test test/client.test.js"
   },
   "dependencies": {
     "playwright-core": "1.57.0"

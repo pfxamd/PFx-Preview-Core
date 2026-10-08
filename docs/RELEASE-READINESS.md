@@ -2,10 +2,12 @@
 
 ## Scope of the candidate
 
-`0.9.0-rc.1` freezes the **local HTTP contract** for internal integration with
+`0.9.0-rc.1` initially froze the **local HTTP contract** for internal integration with
 PFx Responsive and can be used to begin **frontend development** against the
 local loopback service. This is *not* a production hosting release or an
 independent security approval.
+
+The `0.9.0-rc.2` integration helper adds an authenticated fetch-based SSE client without changing the frozen v1 wire contract.
 
 ### Automated gates (must be true on candidate SHA)
 

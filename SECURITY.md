@@ -68,3 +68,13 @@ Core is unavailable. The release candidate is for internal tool development;
 **do not** infer independent security approval, actual production-host resource
 isolation, or safe public multi-user deployment from an API contract freeze.
 See `docs/RELEASE-READINESS.md`.
+
+## Authenticated local integration (0.9.0-rc.2)
+
+The optional `PreviewClient` helper enforces loopback HTTP addresses and
+refuses redirects so bearer credentials cannot be forwarded to a remote
+location by following a malicious HTTP redirect. Its SSE connection uses
+`fetch()` with an `Authorization` header, because native browser EventSource
+cannot carry the required header. Do not embed this token in public UI bundles
+or put it in URLs. The helper is **not** an independently reviewed security
+boundary and is not safe public-hosting middleware.

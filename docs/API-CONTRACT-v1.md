@@ -74,10 +74,47 @@ data: {"mime":"image/jpeg","data":"<base64 JPEG>","metadata":{}}
 
 The `data` property is base64 JPEG text from Chromium's event-driven CDP
 screencast, **not** a video file or a fixed frame rate. The client must close
-its EventSource/connection on teardown and reconnect only if needed. Only one
+its stream connection on teardown and reconnect only if needed. Only one
 active stream per session is allowed. The Core enforces per-frame and per-stream
 output budgets; streams may terminate once a budget is reached. Never assume
 the stream will remain active forever.
+
+### Authenticated streaming client (local integration)
+
+**Do not use native `EventSource` directly:** its constructor cannot attach the
+required `Authorization: Bearer` header. Do not put bearer tokens in the stream
+URL, query string, or cookies as a workaround. Use an authenticated `fetch()`
+request and read its `text/event-stream` response with a `ReadableStream` reader.
+
+The repository includes a dependency-free `PreviewClient` helper in
+`src/client.js`, which implements the v1 requests and the authenticated SSE
+stream as an async iterator (one frame at a time). It restricts its Core
+address to loopback, refuses redirects, and cancels the stream when its
+consumer stops. Example from a **trusted local process**, not a publicly
+shipped browser bundle:
+
+```js
+import { PreviewClient } from './src/client.js';
+
+const core = new PreviewClient({
+  baseURL: 'http://127.0.0.1:4177',
+  token: process.env.PFX_PREVIEW_TOKEN
+});
+const session = await core.create({ url: 'https://example.com/', width: 390, height: 844 });
+try {
+  for await (const frame of core.stream(session.id)) {
+    console.log(frame.mime, frame.data.length);
+    break; // automatically closes the network reader
+  }
+} finally {
+  await core.close(session.id);
+}
+```
+
+A remotely hosted or public browser UI needs a separately secured, trusted
+backend/gateway handling user identity, authorization and these secrets.
+This helper does **not** make public browser hosting safe or implement tenant
+CPU/RAM isolation. The helper is additive; the HTTP wire contract is unchanged.
 
 ## Errors and ownership
 
