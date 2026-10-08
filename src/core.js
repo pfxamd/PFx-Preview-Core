@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { validateTarget } from './security.js';
 import { GuardedEgressProxy } from './egress.js';
+import { HostBridge } from './host-bridge.js';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 
 const limits = { maxSessions: 4, idleMs: 10 * 60_000, navigationMs: 25_000 };
 const checkViewport = ({ width, height, deviceScaleFactor = 1 }) => {
@@ -17,6 +20,8 @@ export class PreviewCore {
     this.validate = validate;
     this.egressFactory = egressFactory;
     this.egress = null;
+    this.bridge = null;
+    this.proxyUrl = null;
     this.config = { ...limits, ...config };
     this.sessions = new Map();
     this.pendingCreates = 0;
@@ -24,23 +29,39 @@ export class PreviewCore {
   }
   async start() {
     if (this.browser) return this;
-    if (!this.factory) {
-      const { chromium } = await import('playwright-core');
-      this.factory = () => chromium.launch({
-        headless: true,
-        args: [
-          '--proxy-bypass-list=<-loopback>', '--disable-quic', '--disable-background-networking',
-          '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
-        ],
-        ...(process.env.PFX_CHROMIUM_PATH ? { executablePath: process.env.PFX_CHROMIUM_PATH } : {})
-      });
-    }
+    const realBrowser = !this.factory;
+    if (realBrowser && process.platform !== 'linux') throw new Error('Secure browser runtime currently requires Linux network namespaces');
     this.egress = this.egressFactory();
     try {
       await this.egress.start();
+      this.proxyUrl = this.egress.url;
+      if (realBrowser) {
+        const { chromium } = await import('playwright-core');
+        const realPath = process.env.PFX_CHROMIUM_PATH || chromium.executablePath();
+        if (!existsSync(realPath)) throw new Error('Chromium binary not installed');
+        this.bridge = await new HostBridge(this.egress.url).start();
+        this.proxyUrl = 'http://127.0.0.1:34177';
+        this.factory = () => chromium.launch({
+          headless: true,
+          executablePath: fileURLToPath(new URL('./netns-launcher.sh', import.meta.url)),
+          env: {
+            ...process.env,
+            PFX_NODE_BINARY: process.execPath,
+            PFX_NETNS_WORKER: fileURLToPath(new URL('./netns-relay.js', import.meta.url)),
+            PFX_REAL_CHROMIUM: realPath,
+            PFX_HOST_PROXY_SOCKET: this.bridge.path
+          },
+          args: [
+            '--proxy-bypass-list=<-loopback>', '--disable-quic', '--disable-background-networking',
+            '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
+          ]
+        });
+      }
       this.browser = await this.factory();
       return this;
     } catch (error) {
+      if (this.bridge) await this.bridge.stop().catch(() => {});
+      this.bridge = null;
       await this.egress.stop().catch(() => {});
       this.egress = null;
       throw error;
@@ -57,7 +78,7 @@ export class PreviewCore {
       context = await this.browser.newContext({
         viewport: { width, height }, deviceScaleFactor, serviceWorkers: 'block', acceptDownloads: false,
         permissions: [],
-        proxy: { server: this.egress.url, bypass: '<-loopback>' }
+        proxy: { server: this.proxyUrl, bypass: '<-loopback>' }
       });
       // Defense in depth only: request routing cannot pin DNS or enforce network isolation.
       await context.route('**/*', async route => {
@@ -163,7 +184,10 @@ export class PreviewCore {
     await Promise.all([...this.sessions.keys()].map(id => this.close(id)));
     if (this.browser) await this.browser.close();
     this.browser = null;
+    if (this.bridge) await this.bridge.stop();
+    this.bridge = null;
     if (this.egress) await this.egress.stop();
     this.egress = null;
+    this.proxyUrl = null;
   }
 }

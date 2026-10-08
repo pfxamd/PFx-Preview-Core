@@ -136,3 +136,19 @@ test('HTTP redirect to loopback is denied when followed through egress proxy', a
     assert.match(redirect, /403 Forbidden/);
   } finally { await proxy.stop(); await new Promise(resolve => upstream.close(resolve)); }
 });
+
+test('failed TCP dial destroys socket and releases concurrency budget', async () => {
+  const { EventEmitter } = await import('node:events');
+  let destroyed = 0;
+  const proxy = new GuardedEgressProxy({ resolver: fakeResolver, maxSockets: 1,
+    dial: () => {
+      const socket = new EventEmitter();
+      socket.destroy = () => { destroyed++; socket.emit('close'); };
+      process.nextTick(() => socket.emit('error', new Error('dial failed')));
+      return socket;
+    }
+  });
+  await assert.rejects(proxy.openConnection('preview.example', 443), /dial failed/);
+  assert.equal(destroyed, 1);
+  assert.equal(proxy.activeSockets, 0);
+});

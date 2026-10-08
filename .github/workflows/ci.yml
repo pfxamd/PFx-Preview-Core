@@ -27,6 +27,7 @@ jobs:
         env:
           PFX_RUN_BROWSER: '1'
           PFX_REQUIRE_BROWSER_NETWORK: '1'
+          PFX_REQUIRE_NETNS: '1'
   external-smoke:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -41,3 +42,5 @@ jobs:
         env:
           PFX_RUN_BROWSER: '1'
           PFX_RUN_EXTERNAL: '1'
+          PFX_REQUIRE_BROWSER_NETWORK: '1'
+          PFX_REQUIRE_NETNS: '1'

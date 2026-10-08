@@ -87,8 +87,9 @@ export class GuardedEgressProxy {
   async openConnection(hostname, port) {
     const { address, family } = await this.resolve(hostname);
     const release = this.acquire();
+    let socket;
     try {
-      const socket = this.dial({ host: address, family, port, timeout: this.connectTimeoutMs });
+      socket = this.dial({ host: address, family, port, timeout: this.connectTimeoutMs });
       await new Promise((resolve, reject) => {
         const success = () => { cleanup(); resolve(); };
         const fail = error => { cleanup(); reject(error); };
@@ -99,7 +100,7 @@ export class GuardedEgressProxy {
       socket.setTimeout(this.connectionIdleMs, () => socket.destroy());
       socket.once('close', release);
       return socket;
-    } catch (error) { release(); throw error; }
+    } catch (error) { socket?.destroy(); release(); throw error; }
   }
   deny(res, status = 403) {
     if (!res.headersSent) { res.writeHead(status, { connection: 'close', 'content-type': 'text/plain' }); }

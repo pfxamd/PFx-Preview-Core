@@ -53,7 +53,7 @@ liveTest('real Chromium: receives streamed JPEG screencast frames and cleans up'
   } finally { await core.stop(); }
 });
 
-for (const target of ['https://example.com/', 'https://www.w3.org/']) {
+for (const target of ['https://example.com/', 'https://www.w3.org/', 'https://developer.mozilla.org/en-US/']) {
   liveTest(`external real Chromium URL and screenshot: ${target}`, {
     skip: !process.env.PFX_RUN_EXTERNAL, timeout: 60_000
   }, async () => {

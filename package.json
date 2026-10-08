@@ -1,6 +1,6 @@
 {
   "name": "@pfxamd/preview-core",
-  "version": "0.3.0-alpha.1",
+  "version": "0.4.0-alpha.1",
   "description": "Isolated browser preview runtime with interactive CDP streaming",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "test": "node --test",
     "test:unit": "node --test test/core.test.js test/security.test.js test/egress.test.js",
     "test:integration": "node --test test/integration.test.js test/server.test.js",
-    "check": "node --check src/egress.js && node --check src/core.js && node --check src/security.js && node --check src/server.js && node --check src/http.js"
+    "check": "node --check src/netns-relay.js && node --check src/host-bridge.js && node --check src/egress.js && node --check src/core.js && node --check src/security.js && node --check src/server.js && node --check src/http.js"
   },
   "dependencies": { "playwright-core": "^1.57.0" }
 }
