@@ -11,7 +11,7 @@ Independent Node.js browser-control backend for PFx Responsive. Uses native Chro
 - Download compatible Chromium: `npx playwright-core install chromium`
 - Start: `npm start` (binds to `127.0.0.1:4177` and prints a temporary local bearer token)
 - Optional system Chromium: set `PFX_CHROMIUM_PATH=/path/to/chromium`
-- Optional API settings: `HOST`, `PORT`, `PFX_PREVIEW_TOKEN` (24+ characters), `PFX_ALLOWED_ORIGIN` (exact origin)
+- Optional API settings: `PORT`, `PFX_PREVIEW_TOKEN` (24+ characters), `PFX_ALLOWED_ORIGIN` (exact origin). `HOST` must be loopback in this alpha release.
 
 All non-health API requests require `Authorization: Bearer <token>`. Browsers making cross-origin requests are denied by default; configure one exact origin if needed. No wildcard CORS.
 
@@ -36,7 +36,7 @@ The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast
 - Real browser tests: `PFX_RUN_BROWSER=1 npm test` after installing Chromium with the Playwright CLI
 - Existing system executable: `PFX_CHROMIUM_PATH=/usr/bin/chromium npm test`
 - External navigation smoke test (requires unrestricted DNS and outbound HTTPS): `PFX_RUN_BROWSER=1 PFX_RUN_EXTERNAL=1 npm test`
-- GitHub Actions runs unit and real Chromium tests on push. Manually dispatch the workflow for an external-site smoke test on the Actions runner.
+- GitHub Actions runs unit and real Chromium tests on push. An external-site smoke test also runs on pushes (and can be retriggered via workflow dispatch). An external failure is a genuine CI blocker; do not silently mark it successful.
 
 **Covered:** browser process start/stop; real DOM interaction, viewports, screenshots, CDP JPEG frames, server SSE delivery, session-cookie separation; bearer auth, origin rejection, invalid URLs, blocked private/reserved IPs, mixed public/private DNS, session capacity, lifecycle.
 
@@ -44,7 +44,7 @@ The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast
 
 ## Security boundary — read before deploying
 
-This is a prototype for trusted local testing only. **Do not bind publicly, even with an API token, until independent protections are deployed and audited.** The in-process URL validator, DNS check and Playwright request routing are only defense-in-depth: they **cannot** prevent DNS rebinding or independently enforce browser outbound-network policy. Browser sub-processes may create network channels not covered by routing.
+This is a prototype for trusted local testing only. **Public bind is deliberately disabled.** Do not bypass this restriction until independent protections are deployed and audited. The in-process URL validator, DNS check and Playwright request routing are only defense-in-depth: they **cannot** prevent DNS rebinding or independently enforce browser outbound-network policy. Browser sub-processes may create network channels not covered by routing.
 
 For public hosting, require at minimum:
 

@@ -5,8 +5,8 @@ import { createPreviewServer } from './http.js';
 const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 4177);
 const token = process.env.PFX_PREVIEW_TOKEN || randomBytes(32).toString('hex');
-if (!['127.0.0.1', '::1'].includes(host) && !process.env.PFX_PREVIEW_TOKEN) {
-  throw new Error('External binding requires an explicitly configured PFX_PREVIEW_TOKEN');
+if (!['127.0.0.1', '::1'].includes(host)) {
+  throw new Error('Public binding is disabled in this alpha release until independent network isolation is enforced');
 }
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
 const core = new PreviewCore();

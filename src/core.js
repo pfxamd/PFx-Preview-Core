@@ -108,6 +108,7 @@ export class PreviewCore {
     const onFrame = frame => {
       if (closed) return;
       try { emit({ mime: 'image/jpeg', data: frame.data, metadata: frame.metadata }); }
+      catch { void close(); }
       finally { cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {}); }
     };
     cdp.on('Page.screencastFrame', onFrame);

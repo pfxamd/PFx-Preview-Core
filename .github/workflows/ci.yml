@@ -27,7 +27,7 @@ jobs:
         env:
           PFX_RUN_BROWSER: '1'
   external-smoke:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
