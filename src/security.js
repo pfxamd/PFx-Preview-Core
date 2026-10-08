@@ -24,7 +24,7 @@ export function isDisallowedIP(raw) {
   return family === 4 ? blockedV4.check(address, 'ipv4') : (!/^[23][0-9a-f]{3}:/i.test(address) || blockedV6.check(address, 'ipv6'));
 }
 
-export async function validateTarget(raw, resolver = lookup) {
+export function assertPublicURL(raw) {
   if (typeof raw !== 'string' || raw.length > 8192) throw new Error('Invalid URL');
   let url;
   try { url = new URL(raw); } catch { throw new Error('Invalid URL'); }
@@ -36,9 +36,14 @@ export async function validateTarget(raw, resolver = lookup) {
       ['.localhost', '.local', '.internal', '.test', '.invalid'].some(suffix => hostname.endsWith(suffix))) {
     throw new Error('Destination is not public');
   }
-  if (isIP(hostname)) {
-    if (isDisallowedIP(hostname)) throw new Error('Destination is not public');
-  } else {
+  if (isIP(hostname) && isDisallowedIP(hostname)) throw new Error('Destination is not public');
+  return url;
+}
+
+export async function validateTarget(raw, resolver = lookup) {
+  const url = assertPublicURL(raw);
+  const hostname = url.hostname.replace(/\.$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  if (!isIP(hostname)) {
     let addresses;
     try { addresses = await resolver(hostname, { all: true, verbatim: true }); }
     catch { throw new Error('Destination DNS lookup failed'); }

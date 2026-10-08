@@ -107,3 +107,43 @@ test('every browser context receives a dedicated localhost egress proxy', async 
   assert.ok(core.egress.url);
   await core.stop();
 });
+
+
+test('rejects a completed redirect to loopback, even with injected URL validator', async () => {
+  let closed = 0;
+  let current = 'https://preview.example/';
+  const page = {
+    goto: async () => { current = 'http://127.0.0.1/private'; return null; },
+    url: () => current,
+    viewportSize: () => ({ width: 390, height: 844 })
+  };
+  const browserFactory = async () => ({ newContext: async () => ({
+    route: async () => {}, newPage: async () => page, close: async () => { closed++; }
+  }), close: async () => {} });
+  const core = new PreviewCore({ browserFactory, validate: async u => u });
+  await core.start();
+  try {
+    await assert.rejects(core.create({ url: 'https://preview.example' }), /not public/);
+    assert.equal(core.sessions.size, 0);
+    assert.equal(closed, 1);
+  } finally { await core.stop(); }
+});
+
+test('rejects a network policy block response instead of treating it as a loaded page', async () => {
+  let closed = 0;
+  const page = {
+    goto: async () => ({ headerValue: async name => name === 'x-pfx-egress-blocked' ? '1' : null }),
+    url: () => 'https://preview.example/',
+    viewportSize: () => ({ width: 390, height: 844 })
+  };
+  const core = new PreviewCore({
+    browserFactory: async () => ({ newContext: async () => ({route: async () => {}, newPage: async () => page, close: async () => { closed++; }}), close: async () => {} }),
+    validate: async u => u
+  });
+  await core.start();
+  try {
+    await assert.rejects(core.create({ url: 'https://preview.example/' }), /network policy/);
+    assert.equal(core.sessions.size, 0);
+    assert.equal(closed, 1);
+  } finally { await core.stop(); }
+});

@@ -103,7 +103,7 @@ export class GuardedEgressProxy {
     } catch (error) { socket?.destroy(); release(); throw error; }
   }
   deny(res, status = 403) {
-    if (!res.headersSent) { res.writeHead(status, { connection: 'close', 'content-type': 'text/plain' }); }
+    if (!res.headersSent) { res.writeHead(status, { connection: 'close', 'content-type': 'text/plain', 'x-pfx-egress-blocked': '1' }); }
     res.end('Blocked by PFx egress policy');
   }
   async onHTTP(req, res) {
