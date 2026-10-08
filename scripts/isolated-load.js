@@ -10,8 +10,24 @@ import { GuardedEgressProxy } from '../src/egress.js';
 const tiers = (process.env.PFX_LOAD_TIERS || '10,25,50').split(',').map(Number);
 if (tiers.some(n => !Number.isInteger(n) || n < 1 || n > 50)) throw new Error('Invalid tier');
 const getNumber=async file=>{try {const n=Number((await readFile(file,'utf8')).trim());return Number.isFinite(n)?n:0;}catch{return 0;}};
-const maxMemory=await getNumber('/sys/fs/cgroup/memory.max');
-const threshold=maxMemory>0?Math.min(maxMemory*.8,5_500_000_000):3_000_000_000;
+async function memorySnapshot() {
+  for (const [usage, max] of [
+    ['/sys/fs/cgroup/memory.current','/sys/fs/cgroup/memory.max'],
+    ['/sys/fs/cgroup/memory/memory.usage_in_bytes','/sys/fs/cgroup/memory/memory.limit_in_bytes']
+  ]) {
+    const bytes=await getNumber(usage);
+    if(bytes>0) return {bytes, capacity:await getNumber(max), source:usage};
+  }
+  // GitHub-hosted runners may not expose memory.current. Never report zero as
+  // a successful measurement; fall back to host MemAvailable information.
+  const info=await readFile('/proc/meminfo','utf8');
+  const find=k=>Number(info.match(new RegExp(`^${k}:\\s+(\\d+) kB$`,'m'))?.[1] ?? 0)*1024;
+  const capacity=find('MemTotal'),available=find('MemAvailable');
+  if(!capacity || !available) throw new Error('Memory monitoring unavailable');
+  return {bytes:capacity-available, capacity, source:'/proc/meminfo'};
+}
+const baseline=await memorySnapshot();
+const threshold=Math.min(baseline.capacity>0?baseline.capacity*.80:3_000_000_000,5_500_000_000);
 const pageHTML='<!doctype html><title>PFx isolated load</title><style>body{font:16px sans-serif;margin:20px}button{padding:12px}</style><button onclick="document.title=\'active\'">Click</button><main>Isolated fixture</main>';
 const target=createServer((_req,res)=>res.end(pageHTML));
 await new Promise(resolve=>target.listen(0,'127.0.0.1',resolve));
@@ -26,7 +42,13 @@ const core=new PreviewCore({
 });
 let thresholdExceeded=false;
 let peakMemory=0;
-const monitor=setInterval(async()=>{const n=await getNumber('/sys/fs/cgroup/memory.current');peakMemory=Math.max(n,peakMemory);if(n>threshold) thresholdExceeded=true;},150);
+const monitor=setInterval(async()=>{
+  try {
+    const {bytes}=await memorySnapshot();
+    peakMemory=Math.max(bytes,peakMemory);
+    if(bytes>threshold) thresholdExceeded=true;
+  } catch {thresholdExceeded=true;}
+},150);
 let failed=false;
 try {
   await core.start();
@@ -34,7 +56,7 @@ try {
     const opened=[];
     let screenshots=0,clicks=0,frames=0;
     const start=performance.now();
-    peakMemory=await getNumber('/sys/fs/cgroup/memory.current');
+    peakMemory=(await memorySnapshot()).bytes;
     try {
       for(let index=0;index<tier;index+=5){
         if(thresholdExceeded) throw new Error('Memory safety threshold reached');
@@ -61,8 +83,8 @@ try {
         await stop();
       }
       if(frames<4) throw new Error(`Insufficient real screencast frames: ${frames}`);
-      console.log(JSON.stringify({tier,status:'PASS',created:opened.length,clicks,screenshots,frames,elapsedMs:Math.round(performance.now()-start),peakCgroupMiB:Math.round(peakMemory/1048576)}));
-    } catch(error){failed=true;console.error(JSON.stringify({tier,status:'FAIL',created:opened.length,error:error.message,peakCgroupMiB:Math.round(peakMemory/1048576)}));}
+      console.log(JSON.stringify({tier,status:'PASS',created:opened.length,clicks,screenshots,frames,elapsedMs:Math.round(performance.now()-start),peakMemoryMiB:Math.round(peakMemory/1048576),memorySource:baseline.source}));
+    } catch(error){failed=true;console.error(JSON.stringify({tier,status:'FAIL',created:opened.length,error:error.message,peakMemoryMiB:Math.round(peakMemory/1048576),memorySource:baseline.source}));}
     finally {await Promise.allSettled(opened.map(s=>core.close(s.id)));}
     if(core.sessions.size!==0){failed=true;console.error('Session cleanup incomplete');}
     if(failed || thresholdExceeded)break;

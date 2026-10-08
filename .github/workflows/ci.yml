@@ -15,7 +15,7 @@ jobs:
       - run: npm run check
       - run: npm run test:unit
   chromium-integration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,6 +23,7 @@ jobs:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npx playwright-core install --with-deps chromium
+      - run: bash scripts/prepare-ci-netns.sh
       - run: npm test
         env:
           PFX_RUN_BROWSER: '1'
@@ -30,7 +31,7 @@ jobs:
           PFX_REQUIRE_NETNS: '1'
   external-smoke:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,6 +39,7 @@ jobs:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npx playwright-core install --with-deps chromium
+      - run: bash scripts/prepare-ci-netns.sh
       - run: node --test test/integration.test.js
         env:
           PFX_RUN_BROWSER: '1'
@@ -55,6 +57,7 @@ jobs:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npx playwright-core install --with-deps chromium
+      - run: bash scripts/prepare-ci-netns.sh
       - run: npm run bench:isolated
         env:
           PFX_LOAD_TIERS: '10,25,50'
