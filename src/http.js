@@ -1,12 +1,6 @@
 import { createServer } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { createAuthenticator } from './auth.js';
 
-function authorized(received, expected) {
-  if (typeof received !== 'string' || typeof expected !== 'string') return false;
-  const actual = Buffer.from(received);
-  const secret = Buffer.from(`Bearer ${expected}`);
-  return actual.length === secret.length && timingSafeEqual(actual, secret);
-}
 function statusFor(error) {
   if (/not found/i.test(error.message)) return 404;
   if (/capacity|already active/i.test(error.message)) return 409;
@@ -14,8 +8,8 @@ function statusFor(error) {
   return 400;
 }
 
-export function createPreviewServer(core, { token, allowedOrigin = null } = {}) {
-  if (!token || token.length < 24) throw new Error('A secret token of at least 24 characters is required');
+export function createPreviewServer(core, { token, tenants, allowedOrigin = null } = {}) {
+  const authenticate = createAuthenticator({ token, tenants });
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (origin && origin !== allowedOrigin) {
@@ -38,7 +32,9 @@ export function createPreviewServer(core, { token, allowedOrigin = null } = {}) 
       });
       res.end(); return;
     }
-    if (!authorized(req.headers.authorization, token)) return send(401, { error: 'Unauthorized' });
+    const identity = authenticate(req.headers.authorization);
+    if (!identity) return send(401, { error: 'Unauthorized' });
+    const { owner } = identity;
     const readBody = async () => {
       const chunks = []; let bytes = 0;
       for await (const chunk of req) {
@@ -51,22 +47,22 @@ export function createPreviewServer(core, { token, allowedOrigin = null } = {}) 
       return body;
     };
     try {
-      if (req.method === 'POST' && req.url === '/sessions') return send(201, await core.create(await readBody()));
+      if (req.method === 'POST' && req.url === '/sessions') return send(201, await core.create({ ...await readBody(), owner }));
       const match = /^\/sessions\/([a-f\d-]{36})(?:\/(screenshot|stream|resize|input|navigate))?$/.exec(req.url || '');
       if (!match) return send(404, { error: 'Not found' });
       const [, id, action] = match;
-      if (req.method === 'DELETE' && !action) return send(200, { closed: await core.close(id) });
-      if (req.method === 'GET' && action === 'screenshot') return send(200, await core.screenshot(id), 'image/png');
-      if (req.method === 'POST' && action === 'resize') return send(200, await core.resize(id, await readBody()));
-      if (req.method === 'POST' && action === 'input') return send(200, await core.input(id, await readBody()));
+      if (req.method === 'DELETE' && !action) return send(200, { closed: await core.close(id, owner) });
+      if (req.method === 'GET' && action === 'screenshot') return send(200, await core.screenshot(id, owner), 'image/png');
+      if (req.method === 'POST' && action === 'resize') return send(200, await core.resize(id, await readBody(), owner));
+      if (req.method === 'POST' && action === 'input') return send(200, await core.input(id, await readBody(), owner));
       if (req.method === 'POST' && action === 'navigate') {
         const { url } = await readBody();
-        return send(200, await core.navigate(id, url));
+        return send(200, await core.navigate(id, url, owner));
       }
       if (req.method === 'GET' && action === 'stream') {
         // Verify before sending headers, so missing sessions return JSON 404.
-        core.get(id);
-        if (core.get(id).stream) return send(409, { error: 'Stream already active' });
+        core.get(id, owner);
+        if (core.get(id, owner).stream) return send(409, { error: 'Stream already active' });
         res.writeHead(200, { ...headers, 'content-type': 'text/event-stream; charset=utf-8', 'connection': 'keep-alive' });
         res.write('retry: 1500\n\n');
         let writable = true;
@@ -77,7 +73,7 @@ export function createPreviewServer(core, { token, allowedOrigin = null } = {}) 
           writable = res.write(`event: frame\ndata: ${JSON.stringify(frame)}\n\n`);
         };
         try {
-          close = await core.stream(id, onFrame, { onStop: () => { if (!res.destroyed && !res.writableEnded) res.end(); } });
+          close = await core.stream(id, onFrame, { onStop: () => { if (!res.destroyed && !res.writableEnded) res.end(); } }, owner);
           if (res.destroyed) await close();
           else res.once('close', () => { void close(); });
         } catch (error) {

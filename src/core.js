@@ -40,6 +40,8 @@ export class PreviewCore {
     this.config = { ...limits, ...config };
     this.sessions = new Map();
     this.pendingCreates = 0;
+    this.pendingOwners = new Map();
+    this.closingOwners = new Map();
     this.pendingPixels = 0;
     this.inFlightCreates = new Set();
     this.inFlightCloses = new Map();
@@ -109,18 +111,27 @@ export class PreviewCore {
       throw error;
     }
   }
-  create({ url, width = 1280, height = 800, deviceScaleFactor = 1 } = {}) {
+  activeFor(owner) {
+    let n = this.pendingOwners.get(owner) || 0;
+    for (const session of this.sessions.values()) if ((session.owner ?? null) === owner) n++;
+    for (const closingOwner of this.closingOwners.values()) if (closingOwner === owner) n++;
+    return n;
+  }
+  create({ url, width = 1280, height = 800, deviceScaleFactor = 1, owner = null } = {}) {
     if (!this.browser || this.stopping) return Promise.reject(new Error('Core is not accepting sessions'));
+    if (owner !== null && (typeof owner !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(owner))) return Promise.reject(new Error('Invalid owner'));
     try { checkViewport({ width, height, deviceScaleFactor }); }
     catch (error) { return Promise.reject(error); }
     if (this.sessions.size + this.pendingCreates + this.inFlightCloses.size >= this.config.maxSessions) return Promise.reject(new Error('Session capacity reached'));
+    if (this.activeFor(owner) >= (this.config.maxSessionsPerOwner ?? this.config.maxSessions)) return Promise.reject(new Error('Tenant capacity reached'));
     const pixels = width * height * deviceScaleFactor ** 2;
     if (pixels > this.config.maxSessionPixels || this.allocatedPixels() + pixels > this.config.maxTotalPixels) {
       return Promise.reject(new Error('Rendering pixel budget exceeded'));
     }
     this.pendingCreates++;
+    this.pendingOwners.set(owner, (this.pendingOwners.get(owner) || 0) + 1);
     this.pendingPixels += pixels;
-    const creation = this.createInternal({ url, width, height, deviceScaleFactor, pixels });
+    const creation = this.createInternal({ url, width, height, deviceScaleFactor, pixels, owner });
     this.inFlightCreates.add(creation);
     void creation.finally(() => this.inFlightCreates.delete(creation)).catch(() => {});
     return creation;
@@ -128,7 +139,7 @@ export class PreviewCore {
   allocatedPixels() {
     return this.pendingPixels + this.closingPixels + [...this.sessions.values()].reduce((sum, s) => sum + (s.pixels || 0), 0);
   }
-  async createInternal({ url, width, height, deviceScaleFactor, pixels }) {
+  async createInternal({ url, width, height, deviceScaleFactor, pixels, owner }) {
     let context;
     try {
       const target = await this.validate(url);
@@ -148,7 +159,7 @@ export class PreviewCore {
       const id = randomUUID();
       const result = { id, url: page.url(), viewport: page.viewportSize(),
         httpStatus: this.navigationMetadata.get(page)?.httpStatus ?? null };
-      this.sessions.set(id, { context, page, touched: Date.now(), createdAt: Date.now(), pixels, deviceScaleFactor, stream: null });
+      this.sessions.set(id, { context, page, touched: Date.now(), createdAt: Date.now(), pixels, deviceScaleFactor, stream: null, owner });
       context = null;
       return result;
     } catch (error) {
@@ -156,18 +167,21 @@ export class PreviewCore {
       throw error;
     } finally {
       this.pendingCreates--;
+      const remaining = (this.pendingOwners.get(owner) || 1) - 1;
+      if (remaining) this.pendingOwners.set(owner, remaining);
+      else this.pendingOwners.delete(owner);
       this.pendingPixels -= pixels;
     }
   }
-  get(id) {
+  get(id, owner = null) {
     const session = this.sessions.get(id);
-    if (!session) throw new Error('Session not found');
+    if (!session || (session.owner ?? null) !== owner) throw new Error('Session not found');
     session.touched = Date.now();
     return session;
   }
-  async resize(id, dimensions) {
+  async resize(id, dimensions, owner = null) {
     checkViewport({ ...dimensions, deviceScaleFactor: 1 });
-    const session = this.get(id);
+    const session = this.get(id, owner);
     const previous = session.resizing || Promise.resolve();
     const operation = previous.catch(() => {}).then(async () => {
       const pixels = dimensions.width * dimensions.height * (session.deviceScaleFactor || 1) ** 2;
@@ -201,15 +215,16 @@ export class PreviewCore {
     });
     return finalUrl;
   }
-  async navigate(id, url) {
+  async navigate(id, url, owner = null) {
+    // Authorization precedes DNS resolution and any outbound navigation work.
+    const session = this.get(id, owner);
     const safeUrl = await this.validate(url);
-    const session = this.get(id);
     const loadedUrl = await this.loadPage(session.page, safeUrl);
     return { url: loadedUrl, httpStatus: this.navigationMetadata.get(session.page)?.httpStatus ?? null };
   }
-  async input(id, event) {
+  async input(id, event, owner = null) {
     if (!event || typeof event !== 'object') throw new Error('Invalid input');
-    const { page } = this.get(id);
+    const { page } = this.get(id, owner);
     const num = value => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10000;
     if (event.kind === 'click' && num(event.x) && num(event.y)) {
       await page.mouse.click(event.x, event.y);
@@ -222,11 +237,11 @@ export class PreviewCore {
     } else { throw new Error('Invalid input event'); }
     return { accepted: true };
   }
-  async screenshot(id) {
-    return this.get(id).page.screenshot({ type: 'png', fullPage: false, timeout: 15000 });
+  async screenshot(id, owner = null) {
+    return this.get(id, owner).page.screenshot({ type: 'png', fullPage: false, timeout: 15000 });
   }
   async stream(id, emit, options = {}) {
-    const session = this.get(id);
+    const session = this.get(id, owner);
     if (session.stream || session.streamPending) throw new Error('Stream already active');
     session.streamPending = true;
     // Chromium CDP: event-driven frames, not a fixed-FPS video recording.
@@ -259,15 +274,16 @@ export class PreviewCore {
       return close;
     } catch (error) { session.streamPending = false; await close(); throw error; }
   }
-  close(id) {
+  close(id, owner = null) {
     const existing = this.inFlightCloses.get(id);
-    if (existing) return existing;
+    if (existing) return this.closingOwners.get(id) === owner ? existing : Promise.resolve(false);
     const session = this.sessions.get(id);
-    if (!session) return Promise.resolve(false);
+    if (!session || (session.owner ?? null) !== owner) return Promise.resolve(false);
     this.sessions.delete(id);
     // A closing context still consumes capacity and pixels until OS resources
     // are actually released. Track it before yielding to asynchronous close.
     this.closingPixels += session.pixels || 0;
+    this.closingOwners.set(id, owner);
     const closing = (async () => {
       try {
         try { if (session.stream) await session.stream(); }
@@ -276,6 +292,7 @@ export class PreviewCore {
       } finally {
         this.closingPixels -= session.pixels || 0;
         this.inFlightCloses.delete(id);
+        this.closingOwners.delete(id);
       }
     })();
     this.inFlightCloses.set(id, closing);
@@ -286,8 +303,8 @@ export class PreviewCore {
     const expired = [...this.sessions].filter(([, s]) =>
       now - (s.createdAt ?? s.touched) > this.config.maxAgeMs ||
       (!s.stream && !s.streamPending && now - s.touched > this.config.idleMs)
-    ).map(([id]) => id);
-    await Promise.all(expired.map(id => this.close(id)));
+    ).map(([id, s]) => ({ id, owner: s.owner ?? null }));
+    await Promise.all(expired.map(({ id, owner }) => this.close(id, owner)));
     return expired.length;
   }
   async stop() {
@@ -300,7 +317,7 @@ export class PreviewCore {
   async stopInternal() {
     if (this.startPromise) await this.startPromise.catch(() => {});
     await Promise.allSettled([...this.inFlightCreates]);
-    await Promise.allSettled([...this.sessions.keys()].map(id => this.close(id)));
+    await Promise.allSettled([...this.sessions].map(([id, s]) => this.close(id, s.owner ?? null)));
     await Promise.allSettled([...this.inFlightCloses.values()]);
     // A crashed browser or failed context close must not strand the host-side
     // network bridge or egress proxy after shutdown.

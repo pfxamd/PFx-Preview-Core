@@ -4,7 +4,7 @@
 
 ## Boundaries
 
-- Incoming API: the current server is a single-operator localhost process protected by one shared bearer token. There is no tenant identity, per-session ownership token, or per-tenant quota. **Never use this server for mutually untrusted users.**
+- Incoming API: default is a single-operator localhost process protected by a shared bearer token. An experimental optional tenant-credential mode now binds each session to its authenticated owner, checks ownership on screenshot/stream/input/navigation/resize/delete, and enforces per-owner session slots. This remains **local-only and unsuitable for mutually untrusted users** until process/OS/tenant quotas and deployment security reviews are completed.
 - Target URLs: preflight screening and the guarded egress proxy reject private/reserved IP addresses, non-HTTP(S) URLs, and unauthorized ports. DNS is resolved before proxy connection and the approved IP is pinned for that connection.
 - Browser: Linux user/mount/PID/network namespaces, chrooted temporary mount root, read-only runtime and browser files, capability and privilege reduction, no direct network routes; communication to host proxy only through a restricted UNIX socket.
 - Resource policy: viewport and session counts are application quotas, **not kernel memory/CPU quotas**. The optional `PFX_REQUIRE_OS_QUOTAS=1` flag checks finite cgroup v2 quotas placed on the **entire parent service** by the operator. It cannot create quotas.
@@ -15,7 +15,7 @@
 
 1. Independent adversarial test of SSRF (IPv4/IPv6, redirects, subresources, WebSockets, DNS rebinding, browser bypasses, metadata IP ranges).
 2. Independent Linux sandbox review, especially mount propagation, file descriptor inheritance, capabilities, PID cleanup, and seccomp policy.
-3. **Tenant-scoped authentication and session ownership**; no other user may read stream frames, control input, or obtain screenshots for another tenant. Per-tenant quotas and abuse detection are required.
+3. **Tenant-scoped ownership is implemented in the local API**, but it still requires an independently audited external identity provider, credential rotation/revocation, per-tenant OS process/CPU/memory isolation, abuse detection and real-world adversarial verification before multi-user release.
 4. Verify cgroup v2 limits in the **actual deployment**, e.g. memory.max, cpu.max, pids.max, and behaviour under OOM/PID exhaustion. CI synthetic memory snapshots are not those proofs.
 5. External HTTPS compatibility matrix with observed failures classified; browser crash and connection-drop recovery; 30-minute reliability gate and regression tests.
 6. TLS at an external terminating gateway, key rotation, logs without URLs with embedded secrets, limits on downloaded/streamed data, and dependency/Chromium security update policy.

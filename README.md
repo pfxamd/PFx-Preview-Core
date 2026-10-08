@@ -134,3 +134,25 @@ that forbid private procfs mounts, the real browser intentionally does not
 start. The 90-second `scripts/soak.js` runs on an explicit `[soak]` commit or
 manual workflow dispatch and exercises repeated sessions, live frames and
 cleanup with a fixture site (not a guarantee for real-world pages).
+
+### Local tenant-scoped API mode (experimental)
+
+For multiple **trusted** local clients, the HTTP server optionally accepts a map
+of independent bearer tokens instead of one shared token:
+
+```sh
+PFX_TENANTS_JSON='{"designer1":"a-long-random-token-of-at-least-24-chars","designer2":"another-long-random-token-at-least-24"}' \
+PFX_MAX_SESSIONS_PER_TENANT=2 npm start
+```
+
+Tokens are checked without ordinary string equality. Session creation is bound to
+its authenticated tenant; screenshots, streams, input, resize, navigation and deletion
+cannot operate on another tenant's sessions. IDs submitted in request JSON cannot
+change ownership. Pending and closing sessions count toward per-tenant capacity, and
+there is also a separate global capacity. Duplicate credentials or supplying both
+shared and tenant credentials causes startup to fail.
+
+**Do not deploy this mode on a public/shared service yet.** It lacks a TLS gateway,
+independent sandbox and SSRF audits, dedicated tenant resource compartments, abuse
+controls, and production resource-limit validation. A tenant-scoped token is not a
+replacement for these protections.
