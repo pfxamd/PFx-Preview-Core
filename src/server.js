@@ -16,7 +16,11 @@ const tenantLimit = tenants ? Number(process.env.PFX_MAX_SESSIONS_PER_TENANT ?? 
 if (tenants && (!Number.isInteger(tenantLimit) || tenantLimit < 1 || tenantLimit > 32)) {
   throw new Error('Invalid PFX_MAX_SESSIONS_PER_TENANT');
 }
-const core = new PreviewCore({ config: tenants ? { maxSessionsPerOwner: tenantLimit } : {} });
+const tenantPixels = tenants ? Number(process.env.PFX_MAX_PIXELS_PER_TENANT ?? 16_000_000) : undefined;
+if (tenants && (!Number.isSafeInteger(tenantPixels) || tenantPixels < 1 || tenantPixels > 48_000_000)) {
+  throw new Error('Invalid PFX_MAX_PIXELS_PER_TENANT');
+}
+const core = new PreviewCore({ config: tenants ? { maxSessionsPerOwner: tenantLimit, maxPixelsPerOwner: tenantPixels } : {} });
 await core.start();
 const server = createPreviewServer(core, { token, tenants, allowedOrigin: process.env.PFX_ALLOWED_ORIGIN });
 const ticker = setInterval(() => core.prune().catch(console.error), 30_000);

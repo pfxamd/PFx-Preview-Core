@@ -1,6 +1,6 @@
 # PFx Preview Core
 
-**Status:** `0.6.0-alpha.3` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.8.0-alpha.2` — experimental browser preview runtime. **Not safe for public deployment.**
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
@@ -36,9 +36,9 @@ The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast
 - **Local-only experimental release.** The API refuses non-loopback binding; the egress proxy itself binds only to `127.0.0.1`.
 - Browser subprocesses are launched with `unshare --user --map-root-user --net --fork`. The new namespace has **no external network routes** and a loopback listener for a relay. The relay connects through an owner-only UNIX socket to a host-side bridge and finally the guarded proxy. The browser has no direct host loopback or public network connection.
 - Browser contexts receive the **namespace-local proxy**. For **HTTP** requests the proxy validates DNS immediately before the socket is opened and connects to that pinned IP while preserving the original `Host`. For **HTTPS**, `CONNECT` is allowed only on port `443`, and the socket is pinned likewise. There is no direct/downgrade fallback specified by PFx.
-- **DNS checks are made at the actual proxy connection**, not only when the user first submits the URL. This guards proxy-mediated requests against DNS rebinding and redirects. The independent network namespace prevents raw IPv4/IPv6/UDP egress, but does not yet provide a fully restricted filesystem, CPU/memory cgroups, or per-tenant host user separation.
+- **DNS checks are made at the actual proxy connection**, not only when the user first submits the URL. This guards proxy-mediated requests against DNS rebinding and redirects. The browser is additionally restricted by Linux filesystem/process/network namespaces; production-level kernel cgroup quotas and per-tenant OS process separation have **not** been established.
 - Allowed destination ports are `80` (HTTP/WS) and `443` (HTTPS/WSS). Other ports deliberately fail, so some legitimate websites are not yet compatible.
-- **OS-level network isolation is implemented and locally tested** using a Linux user/network namespace with no routes and a UNIX socket relay. Public deployment is still disabled pending OS-level filesystem/process restrictions, real-browser proxy integration results on CI, resource limits, and an independent security audit. Never expose this alpha release publicly.
+- **OS-level filesystem/process/network isolation and external Chromium integration are verified in GitHub Actions**. This is still an experimental sandbox: kernel seccomp review, per-tenant OS isolation, production resource enforcement and an independent security assessment are pending. Never expose this alpha release publicly.
 
 ## Testing
 
@@ -59,11 +59,11 @@ The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast
 
 **Covered in local unit/socket tests:** namespace no-route enforcement, direct host/Internet connection denial, bridge-only permitted path, browser process start/stop; real DOM interaction, viewports, screenshots, CDP JPEG frames, server SSE delivery, session-cookie separation; bearer auth, origin rejection, invalid URLs, blocked private/reserved IPs, mixed public/private DNS, session capacity, lifecycle.
 
-**Not yet proven:** real external-site navigation in the restricted local testing environment; full compatibility with websites that require login/MFA, DRM or block automation; Firefox/WebKit; cross-device input synchronization; production load capacity.
+**Not yet proven:** local external-site navigation on hosts that restrict user namespaces; full compatibility with logins/MFA, DRM or anti-bot sites; Firefox/WebKit; cross-device input synchronization; production server capacity and tenant-level OS isolation.
 
 ## Security boundary — read before deploying
 
-This is a prototype for trusted local testing only. **Public bind is deliberately disabled.** Do not bypass this restriction until filesystem isolation, authenticated multi-user session ownership, OS resource limits, threat modeling, and independent security review are complete. An isolated Linux network namespace restricts direct Chromium egress; the in-process URL checks and Playwright routing remain defense-in-depth and must never be regarded as the security boundary.
+This is a prototype for trusted local testing only. **Public bind is deliberately disabled.** Filesystem isolation and experimental tenant-scoped API authorization exist, but do not bypass this restriction until production OS resource limits, per-tenant process isolation, threat modeling, credential management and independent security review are complete. An isolated Linux network namespace restricts direct Chromium egress; the in-process URL checks and Playwright routing remain defense-in-depth and must never be regarded as the security boundary.
 
 For public hosting, require at minimum:
 
@@ -96,7 +96,7 @@ Public destination
 
 The Chromium child receives a **minimal environment allowlist** rather than server tokens. The relay, bridge, and guarded proxy shut down with the core. Platform requirements are intentionally strict; a host that forbids user namespaces cannot start the real-browser engine.
 
-**Verification status:** [Core CI #8](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37757983575) passed real external HTTPS navigation and Chromium integration. The isolated full-Core load job in [run #37761403954](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37761403954) passed 10, 25 and 50 synthetic sessions, but the other Chromium jobs failed on an inconsistent CI runner. Runner pinning and namespace preflight need successful post-fix CI results. The OS-level isolation protects network paths only, **not filesystem access, fork/CPU exhaustion, process privileges, or renderer escapes**. Public deployment remains prohibited until those boundaries are independently secured and tested.
+**Verification status:** [Core CI #8](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37757983575) passed real external HTTPS navigation. Later CI runs verified namespace/chroot isolation, synthetic 10/25/50-session loads and a 30-minute stability gate. This does **not** prove against a Chromium renderer exploit, all resource exhaustion, or compromise of a multi-tenant host. Public deployment remains prohibited pending independent assessment and host-specific resource validation.
 
 ## Release-candidate validation (0.7.0 alpha)
 
@@ -142,14 +142,16 @@ of independent bearer tokens instead of one shared token:
 
 ```sh
 PFX_TENANTS_JSON='{"designer1":"a-long-random-token-of-at-least-24-chars","designer2":"another-long-random-token-at-least-24"}' \
-PFX_MAX_SESSIONS_PER_TENANT=2 npm start
+PFX_MAX_SESSIONS_PER_TENANT=2 PFX_MAX_PIXELS_PER_TENANT=16000000 npm start
 ```
 
 Tokens are checked without ordinary string equality. Session creation is bound to
 its authenticated tenant; screenshots, streams, input, resize, navigation and deletion
 cannot operate on another tenant's sessions. IDs submitted in request JSON cannot
-change ownership. Pending and closing sessions count toward per-tenant capacity, and
-there is also a separate global capacity. Duplicate credentials or supplying both
+change ownership. Pending and closing sessions count toward per-tenant session **and rendering-pixel** quotas, and
+there is also a separate global capacity. Default pixel budget is 16 million per tenant
+(including device-scale-factor amplification), capped by the global 48-million limit.
+These are application quotas, **not** enforced CPU/RAM/cgroup limits. Duplicate credentials or supplying both
 shared and tenant credentials causes startup to fail.
 
 **Do not deploy this mode on a public/shared service yet.** It lacks a TLS gateway,

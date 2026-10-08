@@ -187,3 +187,90 @@ test('tenant stream authorization is enforced before CDP allocation', async () =
     assert.equal(core.get(id, 'alice').stream, null);
   } finally { await core.stop(); }
 });
+
+test('per-tenant pixel quota limits concurrent pending creations without starving other tenants', async () => {
+  const { core } = makeCore({ maxSessions: 4, maxSessionsPerOwner: 3, maxPixelsPerOwner: 500_000 });
+  let unblock;
+  const gate = new Promise(resolve => { unblock = resolve; });
+  const originalValidate = core.validate;
+  core.validate = async url => { await gate; return originalValidate(url); };
+  await core.start();
+  try {
+    const first = core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' });
+    const second = core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' });
+    assert.equal(core.allocatedPixelsFor('alice'), 499_200);
+    await assert.rejects(core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' }), /Tenant pixel budget/);
+    const third = core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'bob' });
+    assert.equal(core.allocatedPixelsFor('bob'), 249_600);
+    unblock();
+    const ids = await Promise.all([first, second, third]);
+    assert.equal(core.allocatedPixelsFor('alice'), 499_200);
+    await Promise.all(ids.map((session, i) => core.close(session.id, i === 2 ? 'bob' : 'alice')));
+    assert.equal(core.allocatedPixelsFor('alice'), 0);
+    assert.equal(core.allocatedPixelsFor('bob'), 0);
+  } finally { unblock(); await core.stop(); }
+});
+
+test('tenant pixel quota applies to resize, preserving previous reservations after refusal', async () => {
+  const { core } = makeCore({ maxSessions: 4, maxSessionsPerOwner: 3, maxPixelsPerOwner: 600_000 });
+  await core.start();
+  try {
+    const first = await core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' });
+    const second = await core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' });
+    await assert.rejects(core.resize(first.id, { width: 650, height: 650 }, 'alice'), /Tenant pixel budget/);
+    assert.equal(core.allocatedPixelsFor('alice'), 499_200);
+    const bob = await core.create({ url: 'https://example.com/', width: 650, height: 650, owner: 'bob' });
+    assert.equal(core.allocatedPixelsFor('bob'), 422_500);
+    assert.deepEqual(await core.resize(first.id, { width: 500, height: 600 }, 'alice'), { viewport: { width: 390, height: 640 } });
+    assert.equal(core.allocatedPixelsFor('alice'), 549_600);
+    await Promise.all([core.close(first.id, 'alice'), core.close(second.id, 'alice'), core.close(bob.id, 'bob')]);
+    assert.equal(core.allocatedPixelsFor('alice'), 0);
+  } finally { await core.stop(); }
+});
+
+test('tenant pixel reservations stay charged until asynchronous context close finishes', async () => {
+  const { core } = makeCore({ maxSessions: 3, maxSessionsPerOwner: 2, maxPixelsPerOwner: 250_000 });
+  let unblock;
+  const gate = new Promise(resolve => { unblock = resolve; });
+  await core.start();
+  try {
+    const { id } = await core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' });
+    const session = core.get(id, 'alice');
+    const closeContext = session.context.close;
+    session.context.close = async () => { await gate; await closeContext(); };
+    const closing = core.close(id, 'alice');
+    assert.equal(core.allocatedPixelsFor('alice'), 249_600);
+    await assert.rejects(core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'alice' }), /Tenant pixel budget/);
+    const other = await core.create({ url: 'https://example.com/', width: 390, height: 640, owner: 'bob' });
+    unblock();
+    await closing;
+    assert.equal(core.allocatedPixelsFor('alice'), 0);
+    await core.close(other.id, 'bob');
+  } finally { unblock(); await core.stop(); }
+});
+
+test('tenant quota configuration rejects invalid or unusable limits', () => {
+  for (const maxPixelsPerOwner of [0, -1, 0.5, Infinity, 49_000_000]) {
+    assert.throws(() => makeCore({ maxPixelsPerOwner }), /Invalid per-tenant pixel quota/);
+  }
+});
+
+test('HTTP tenant pixel exhaustion returns 409 and does not affect another tenant', async () => {
+  await withServer({ maxSessions: 4, maxSessionsPerOwner: 2, maxPixelsPerOwner: 250_000 }, async ({ base }) => {
+    const payload = { url: 'https://example.com/', width: 390, height: 640 };
+    const first = await fetch(`${base}/sessions`, options(alice, 'POST', payload));
+    assert.equal(first.status, 201);
+    const { id } = await first.json();
+    const second = await fetch(`${base}/sessions`, options(alice, 'POST', payload));
+    assert.equal(second.status, 409);
+    assert.match((await second.json()).error, /Tenant pixel budget/);
+    const bobFirst = await fetch(`${base}/sessions`, options(bob, 'POST', payload));
+    assert.equal(bobFirst.status, 201);
+    const { id: bobId } = await bobFirst.json();
+    const aliceResize = await fetch(`${base}/sessions/${id}/resize`, options(alice, 'POST', { width: 600, height: 600 }));
+    assert.equal(aliceResize.status, 409);
+    assert.equal((await fetch(`${base}/sessions/${bobId}/screenshot`, options(bob))).status, 200);
+    await fetch(`${base}/sessions/${id}`, options(alice, 'DELETE'));
+    await fetch(`${base}/sessions/${bobId}`, options(bob, 'DELETE'));
+  });
+});

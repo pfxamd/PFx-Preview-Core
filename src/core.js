@@ -38,10 +38,17 @@ export class PreviewCore {
     this.sandboxRoot = null;
     this.proxyUrl = null;
     this.config = { ...limits, ...config };
+    if (this.config.maxPixelsPerOwner != null &&
+        (!Number.isSafeInteger(this.config.maxPixelsPerOwner) || this.config.maxPixelsPerOwner < 1 ||
+         this.config.maxPixelsPerOwner > this.config.maxTotalPixels)) {
+      throw new Error('Invalid per-tenant pixel quota');
+    }
     this.sessions = new Map();
     this.pendingCreates = 0;
     this.pendingOwners = new Map();
+    this.pendingPixelOwners = new Map();
     this.closingOwners = new Map();
+    this.closingPixelReservations = new Map();
     this.pendingPixels = 0;
     this.inFlightCreates = new Set();
     this.inFlightCloses = new Map();
@@ -128,9 +135,13 @@ export class PreviewCore {
     if (pixels > this.config.maxSessionPixels || this.allocatedPixels() + pixels > this.config.maxTotalPixels) {
       return Promise.reject(new Error('Rendering pixel budget exceeded'));
     }
+    if (this.allocatedPixelsFor(owner) + pixels > (this.config.maxPixelsPerOwner ?? this.config.maxTotalPixels)) {
+      return Promise.reject(new Error('Tenant pixel budget exceeded'));
+    }
     this.pendingCreates++;
     this.pendingOwners.set(owner, (this.pendingOwners.get(owner) || 0) + 1);
     this.pendingPixels += pixels;
+    this.pendingPixelOwners.set(owner, (this.pendingPixelOwners.get(owner) || 0) + pixels);
     const creation = this.createInternal({ url, width, height, deviceScaleFactor, pixels, owner });
     this.inFlightCreates.add(creation);
     void creation.finally(() => this.inFlightCreates.delete(creation)).catch(() => {});
@@ -138,6 +149,14 @@ export class PreviewCore {
   }
   allocatedPixels() {
     return this.pendingPixels + this.closingPixels + [...this.sessions.values()].reduce((sum, s) => sum + (s.pixels || 0), 0);
+  }
+  allocatedPixelsFor(owner) {
+    let count = this.pendingPixelOwners.get(owner) || 0;
+    for (const session of this.sessions.values()) if ((session.owner ?? null) === owner) count += session.pixels || 0;
+    for (const reservation of this.closingPixelReservations.values()) {
+      if (reservation.owner === owner) count += reservation.pixels;
+    }
+    return count;
   }
   async createInternal({ url, width, height, deviceScaleFactor, pixels, owner }) {
     let context;
@@ -171,6 +190,9 @@ export class PreviewCore {
       if (remaining) this.pendingOwners.set(owner, remaining);
       else this.pendingOwners.delete(owner);
       this.pendingPixels -= pixels;
+      const reserved = (this.pendingPixelOwners.get(owner) || 0) - pixels;
+      if (reserved > 0) this.pendingPixelOwners.set(owner, reserved);
+      else this.pendingPixelOwners.delete(owner);
     }
   }
   get(id, owner = null) {
@@ -187,6 +209,9 @@ export class PreviewCore {
       const pixels = dimensions.width * dimensions.height * (session.deviceScaleFactor || 1) ** 2;
       if (pixels > this.config.maxSessionPixels || this.allocatedPixels() - (session.pixels || 0) + pixels > this.config.maxTotalPixels) {
         throw new Error('Rendering pixel budget exceeded');
+      }
+      if (this.allocatedPixelsFor(owner) - (session.pixels || 0) + pixels > (this.config.maxPixelsPerOwner ?? this.config.maxTotalPixels)) {
+        throw new Error('Tenant pixel budget exceeded');
       }
       const prior = session.pixels || 0;
       session.pixels = pixels; // Reserve synchronously before async resize.
@@ -284,6 +309,7 @@ export class PreviewCore {
     // are actually released. Track it before yielding to asynchronous close.
     this.closingPixels += session.pixels || 0;
     this.closingOwners.set(id, owner);
+    this.closingPixelReservations.set(id, { owner, pixels: session.pixels || 0 });
     const closing = (async () => {
       try {
         try { if (session.stream) await session.stream(); }
@@ -293,6 +319,7 @@ export class PreviewCore {
         this.closingPixels -= session.pixels || 0;
         this.inFlightCloses.delete(id);
         this.closingOwners.delete(id);
+        this.closingPixelReservations.delete(id);
       }
     })();
     this.inFlightCloses.set(id, closing);
