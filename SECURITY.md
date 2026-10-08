@@ -9,6 +9,7 @@
 - Browser: Linux user/mount/PID/network namespaces, chrooted temporary mount root, read-only runtime and browser files, capability and privilege reduction, no direct network routes; communication to host proxy only through a restricted UNIX socket.
 - Resource policy: viewport and session counts are application quotas, **not kernel memory/CPU quotas**. The optional `PFX_REQUIRE_OS_QUOTAS=1` flag checks finite cgroup v2 quotas placed on the **entire parent service** by the operator. It cannot create quotas.
 - The browser still runs real untrusted JavaScript and Chromium contains a large attack surface; namespace/chroot isolation is only defense in depth. OS policy must also include seccomp and verified process/user separation before a multi-user service.
+- Compatibility diagnostics now distinguish actual page navigation from common CAPTCHA/anti-bot interstitials and HTTP errors. A successful screenshot or a document title is **not** proof that the original site rendered. Challenge detection is heuristic and can miss novel interstitials; it never bypasses site restrictions.
 
 ## Pending requirements before any public production release
 

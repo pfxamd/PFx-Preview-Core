@@ -30,6 +30,28 @@ test('creates, resizes, screenshots and closes isolated session', async () => {
   assert.equal(state.closed, 1);
   await core.stop();
 });
+test('records the final navigation HTTP status without calling a 403 a successful compatibility test', async () => {
+  let status = 403;
+  const page = {
+    goto: async () => ({ status: () => status, headerValue: async () => null }),
+    url: () => 'https://example.com/',
+    viewportSize: () => ({ width: 390, height: 844 })
+  };
+  const core = new PreviewCore({
+    browserFactory: async () => ({ newContext: async () => ({
+      route: async () => {}, newPage: async () => page, close: async () => {}
+    }), close: async () => {} }),
+    validate: async url => url
+  });
+  await core.start();
+  try {
+    const session = await core.create({ url: 'https://example.com/' });
+    assert.equal(session.httpStatus, 403);
+    status = 200;
+    const navigation = await core.navigate(session.id, 'https://example.com/');
+    assert.deepEqual(navigation, { url: 'https://example.com/', httpStatus: 200 });
+  } finally { await core.stop(); }
+});
 test('enforces session capacity and idle cleanup', async () => {
   const { factory } = fakeFactory();
   const core = new PreviewCore({ browserFactory: factory, validate: async u => u, config: { maxSessions: 1, idleMs: 10 } });

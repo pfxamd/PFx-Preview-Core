@@ -1,12 +1,18 @@
-# Release Candidate Validation
+# Release Candidate Validation — PFx Preview Core
 
-This file records the start of the extended validation for PFx Preview Core 0.7.0-alpha.1.
+## Previous release-gate evidence
 
-- Baseline GitHub Actions `Core CI` on commit `b31f57ce7b2675f3cb72267d764aff4d6f26179c`: success.
-- The `[rc]` marker in this commit starts the separate `release-gate` job.
-- Gate 1: 20 public websites, with at least 15 successful navigation/title/screenshot results.
-- Gate 2: 1800 seconds (30 minutes) of browser/stream/session lifecycle soak with browser-disconnect recovery every 20 cycles.
-- A successful job does **not** certify production readiness or replace an independent security assessment and per-tenant isolation.
-- Release status stays **alpha** until all other conditions in `SECURITY.md` are completed.
+- CI run: https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37765276471
+- Commit: `680dd3d85b1065454f810f0fc805dc1ba9f21da1`
+- Result: GitHub Actions succeeded for unit, browser-validation and release-gate.
+- Initial 20-site matrix: 19 reported PASS, 1 reported FAIL (`www.gnu.org`, title absent).
+- **Audit correction**: `www.w3.org` yielded a Cloudflare `Just a moment...` challenge page, which the old title/screenshot-only matrix incorrectly reported as PASS. Thus **at most 18 of the 20** were demonstrated to display genuine, titled site content. Challenge completion was not shown.
+- 30-minute stability gate: 1,801 seconds elapsed; 2,021 lifecycle cycles, 8,084 clicks, 2,021 screenshots, 4,042 streamed frames, 101 browser restarts, 0 remaining sessions, status PASS.
 
-Do not publish an official v1.0.0 release just because GitHub Actions is green.
+## Regression and future release requirements
+
+- As of `0.7.0-alpha.2`, classify known challenge/interstitial titles, challenge redirects/DOM markers and non-2xx main-document statuses as incompatible, with direct unit tests.
+- Verify the corrected 20-site matrix on GitHub Actions. Because anti-bot response content changes, never infer the corrected pass count from the previous run.
+- The gate accepts at least 15 sites as a diagnostic threshold; this does not promise compatibility with any given domain.
+- CI is **not** an independent security audit, verified production cgroup isolation, seccomp assessment, tenant-scoped authorization or proof of production readiness.
+- Keep public binding disabled, retain status Alpha, and do not issue an official v1.0.0 release until the blockers in `SECURITY.md` have been satisfied.

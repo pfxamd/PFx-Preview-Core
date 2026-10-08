@@ -44,6 +44,7 @@ export class PreviewCore {
     this.inFlightCreates = new Set();
     this.inFlightCloses = new Map();
     this.closingPixels = 0;
+    this.navigationMetadata = new WeakMap();
     this.browser = null;
     this.startPromise = null;
     this.stopPromise = null;
@@ -145,7 +146,8 @@ export class PreviewCore {
       await this.loadPage(page, target);
       if (this.stopping) throw new Error('Core is shutting down');
       const id = randomUUID();
-      const result = { id, url: page.url(), viewport: page.viewportSize() };
+      const result = { id, url: page.url(), viewport: page.viewportSize(),
+        httpStatus: this.navigationMetadata.get(page)?.httpStatus ?? null };
       this.sessions.set(id, { context, page, touched: Date.now(), createdAt: Date.now(), pixels, deviceScaleFactor, stream: null });
       context = null;
       return result;
@@ -194,12 +196,16 @@ export class PreviewCore {
     if (response?.headerValue && await response.headerValue('x-pfx-egress-blocked') === '1') {
       throw new Error('Navigation blocked by network policy');
     }
+    this.navigationMetadata.set(page, {
+      httpStatus: typeof response?.status === 'function' ? response.status() : null
+    });
     return finalUrl;
   }
   async navigate(id, url) {
     const safeUrl = await this.validate(url);
     const session = this.get(id);
-    return { url: await this.loadPage(session.page, safeUrl) };
+    const loadedUrl = await this.loadPage(session.page, safeUrl);
+    return { url: loadedUrl, httpStatus: this.navigationMetadata.get(session.page)?.httpStatus ?? null };
   }
   async input(id, event) {
     if (!event || typeof event !== 'object') throw new Error('Invalid input');

@@ -1,4 +1,5 @@
 import { PreviewCore } from '../src/core.js';
+import { auditCompatibility } from '../src/compatibility-audit.js';
 
 // Diagnostic compatibility matrix: genuine navigation, title and screenshot;
 // never infer that sign-in, DRM or anti-bot challenges are supported.
@@ -29,10 +30,13 @@ try {
       id = session.id;
       const page = core.get(id).page;
       const title = await page.title();
-      if (!title?.trim()) throw new Error('Document has no title');
+      const challengeMarkers = await page.locator('#challenge-form, #cf-challenge-running, .cf-challenge, [data-cf-beacon-challenge]').count() > 0;
+      const audit = auditCompatibility({ title, finalUrl: page.url(), httpStatus: session.httpStatus, challengeMarkers });
+      if (!audit.compatible) throw new Error(audit.reason);
       const png = await core.screenshot(id);
       if (png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('Invalid screenshot');
-      const status = { status: 'PASS', url, finalUrl: page.url(), title: title.slice(0, 120), elapsedMs: Date.now() - begin };
+      const status = { status: 'PASS', url, finalUrl: page.url(), httpStatus: session.httpStatus,
+        title: title.slice(0, 120), elapsedMs: Date.now() - begin };
       results.push(status);
       console.log(JSON.stringify(status));
     } catch (error) {
