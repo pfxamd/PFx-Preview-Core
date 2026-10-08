@@ -1,17 +1,61 @@
 # PFx Preview Core
 
-Initial independent browser preview runtime. Status: **0.1.0-alpha.1 — experimental**.
+**Status:** `0.2.0-alpha.1` — experimental browser preview runtime. **Not safe for public deployment.**
 
-Node.js 22+. Install with `npm install`, then `npx playwright install chromium`. Run `npm test` and `npm start`.
+Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included.
 
-API listens on `127.0.0.1:4177` by default.
+## Requirements
 
-- `GET /health`
-- `POST /sessions` with `{"url":"https://example.com","width":390,"height":844}`
-- `POST /resize` with `{"id":"...","width":1280,"height":800}`
-- `GET /sessions/:id/screenshot`
-- `DELETE /sessions/:id`
+- Node.js 22+
+- Install: `npm install`
+- Download compatible Chromium: `npx playwright-core install chromium`
+- Start: `npm start` (binds to `127.0.0.1:4177` and prints a temporary local bearer token)
+- Optional system Chromium: set `PFX_CHROMIUM_PATH=/path/to/chromium`
+- Optional API settings: `HOST`, `PORT`, `PFX_PREVIEW_TOKEN` (24+ characters), `PFX_ALLOWED_ORIGIN` (exact origin)
 
-**Security:** NOT suitable for public internet deployment. URL inspection and request interception alone do not prevent DNS rebinding and browser-origin SSRF. Requires an independently enforced egress sandbox, authentication, quotas and security audit before remote deployment.
+All non-health API requests require `Authorization: Bearer <token>`. Browsers making cross-origin requests are denied by default; configure one exact origin if needed. No wildcard CORS.
 
-Tests currently mock browsers; actual browser integration, interactive streaming, Firefox/WebKit, multi-device synchronization, browser testing, and hard network isolation remain future work.
+## HTTP API
+
+| Method | Endpoint | Body / result |
+| --- | --- | --- |
+| GET | `/health` | Basic liveness |
+| POST | `/sessions` | `{ "url":"https://example.com", "width":390, "height":844 }` → session ID |
+| POST | `/sessions/:id/resize` | `{ "width":1280, "height":800 }` |
+| POST | `/sessions/:id/navigate` | `{ "url":"https://example.com/page" }` |
+| POST | `/sessions/:id/input` | `{ "kind":"click", "x":80, "y":120 }`, `{ "kind":"type", "text":"Hello" }`, `{ "kind":"scroll", "deltaX":0, "deltaY":500 }` or `{ "kind":"key", "key":"Enter" }` |
+| GET | `/sessions/:id/screenshot` | PNG image |
+| GET | `/sessions/:id/stream` | SSE `frame` events: JSON with `mime`, base64 `data`, and CDP `metadata` |
+| DELETE | `/sessions/:id` | Closes context and stream |
+
+The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast works on Chromium; other browser engines need a separate adapter. SSE is read with `fetch` streaming and bearer authorization, not plain `EventSource` (which cannot set bearer headers).
+
+## Testing
+
+- Unit, security, and HTTP tests: `npm test`
+- Real browser tests: `PFX_RUN_BROWSER=1 npm test` after installing Chromium with the Playwright CLI
+- Existing system executable: `PFX_CHROMIUM_PATH=/usr/bin/chromium npm test`
+- External navigation smoke test (requires unrestricted DNS and outbound HTTPS): `PFX_RUN_BROWSER=1 PFX_RUN_EXTERNAL=1 npm test`
+- GitHub Actions runs unit and real Chromium tests on push. Manually dispatch the workflow for an external-site smoke test on the Actions runner.
+
+**Covered:** browser process start/stop; real DOM interaction, viewports, screenshots, CDP JPEG frames, server SSE delivery, session-cookie separation; bearer auth, origin rejection, invalid URLs, blocked private/reserved IPs, mixed public/private DNS, session capacity, lifecycle.
+
+**Not yet proven:** real external-site navigation in the restricted local testing environment; full compatibility with websites that require login/MFA, DRM or block automation; Firefox/WebKit; cross-device input synchronization; production load capacity.
+
+## Security boundary — read before deploying
+
+This is a prototype for trusted local testing only. **Do not bind publicly, even with an API token, until independent protections are deployed and audited.** The in-process URL validator, DNS check and Playwright request routing are only defense-in-depth: they **cannot** prevent DNS rebinding or independently enforce browser outbound-network policy. Browser sub-processes may create network channels not covered by routing.
+
+For public hosting, require at minimum:
+
+1. An independently enforced browser egress policy (IPv4 and IPv6) blocking loopback, RFC1918/link-local, metadata services, internal control planes, and unauthorized ports and protocols. Handle DNS rebinding and redirects at the network boundary, not only JavaScript URL checks.
+2. Per-tenant browser process isolation, OS sandboxing, resource quotas, timeouts, and restricted file system mounts. Never attach host credentials or cloud metadata access.
+3. TLS, scoped authentication, abuse controls, concurrency/memory limits, observability, secure secret handling, and regular patching.
+4. Security review and real adversarial SSRF testing inside the intended deployment architecture.
+
+### Known limitations
+
+- Third-party site authentication, anti-bot restrictions, CAPTCHAs, and licensed media can still prevent loading.
+- Real mobile hardware quirks are not perfectly simulated by Chromium viewport settings.
+- This is **not** a tool for evading access controls.
+- The sandbox environment used for initial development blocked all Chromium navigation and external DNS. Real rendering, screenshot, input and streaming were proven with locally-injected HTML; external websites must still be tested on a network-enabled runner.

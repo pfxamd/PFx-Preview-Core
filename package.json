@@ -1,1 +1,16 @@
-{"name":"@pfxamd/preview-core","version":"0.1.0-alpha.1","private":true,"type":"module","engines":{"node":">=22"},"scripts":{"start":"node src/server.js","test":"node --test","check":"node --check src/core.js && node --check src/server.js && node --check src/security.js"},"dependencies":{"playwright":"^1.58.0"}}
+{
+  "name": "@pfxamd/preview-core",
+  "version": "0.2.0-alpha.1",
+  "description": "Isolated browser preview runtime with interactive CDP streaming",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "test:unit": "node --test test/core.test.js test/security.test.js",
+    "test:integration": "node --test test/integration.test.js test/server.test.js",
+    "check": "node --check src/core.js && node --check src/security.js && node --check src/server.js && node --check src/http.js"
+  },
+  "dependencies": { "playwright-core": "^1.57.0" }
+}
