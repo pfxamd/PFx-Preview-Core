@@ -7,6 +7,11 @@ import { GuardedEgressProxy } from '../src/egress.js';
 
 // Explicit CI performance gate: real Core.create through the network namespace,
 // guarded proxy, fixture server, DOM rendering, interactions and screenshots.
+const hardDeadline = setTimeout(() => {
+  console.error('FAIL: stress test global deadline exceeded; terminating isolated worker');
+  process.exit(124);
+}, 180_000);
+hardDeadline.unref();
 const tiers = (process.env.PFX_LOAD_TIERS || '10,25,50').split(',').map(Number);
 if (tiers.some(n => !Number.isInteger(n) || n < 1 || n > 50)) throw new Error('Invalid tier');
 const getNumber=async file=>{try {const n=Number((await readFile(file,'utf8')).trim());return Number.isFinite(n)?n:0;}catch{return 0;}};
@@ -62,6 +67,7 @@ try {
         if(thresholdExceeded) throw new Error('Memory safety threshold reached');
         const batch=await Promise.all(Array.from({length:Math.min(5,tier-index)},()=>core.create({url:'http://preview.example/',width:390,height:640})));
         opened.push(...batch);
+        console.log(JSON.stringify({tier,phase:'opening',opened:opened.length,elapsedMs:Math.round(performance.now()-start)}));
       }
       // Validate real interactive content on every session rather than just opening tabs.
       for(const session of opened){

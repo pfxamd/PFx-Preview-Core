@@ -23,7 +23,7 @@ const relay = createServer(client => {
 relay.listen(port, '127.0.0.1', () => {
   const chrome = spawn('/usr/bin/setpriv', [
     '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--no-new-privs',
-    '--', '/usr/bin/prlimit', '--nofile=512:512', '--fsize=67108864:67108864',
+    '--', '/usr/bin/prlimit', '--nofile=4096:4096', '--fsize=67108864:67108864',
     '--core=0:0', '--cpu=180:180', '--', browserPath, ...process.argv.slice(2)
   ], {
     stdio: ['ignore', 'inherit', 'inherit', 3, 4],

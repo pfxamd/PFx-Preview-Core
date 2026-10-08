@@ -1,6 +1,6 @@
 # PFx Preview Core
 
-**Status:** `0.6.0-alpha.1` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.6.0-alpha.2` — experimental browser preview runtime. **Not safe for public deployment.**
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
@@ -98,7 +98,7 @@ The Chromium child receives a **minimal environment allowlist** rather than serv
 
 **Verification status:** [Core CI #8](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37757983575) passed real external HTTPS navigation and Chromium integration. The isolated full-Core load job in [run #37761403954](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37761403954) passed 10, 25 and 50 synthetic sessions, but the other Chromium jobs failed on an inconsistent CI runner. Runner pinning and namespace preflight need successful post-fix CI results. The OS-level isolation protects network paths only, **not filesystem access, fork/CPU exhaustion, process privileges, or renderer escapes**. Public deployment remains prohibited until those boundaries are independently secured and tested.
 
-## Experimental filesystem / process isolation (`0.6.0-alpha.1`)
+## Experimental filesystem / process isolation (`0.6.0-alpha.2`)
 
 The browser launcher now **fails closed** unless Linux permits creating user,
 network, mount, PID, IPC and UTS namespaces and mounting a private procfs.
