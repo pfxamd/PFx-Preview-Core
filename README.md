@@ -1,6 +1,6 @@
 # PFx Preview Core
 
-**Status:** `0.8.0-alpha.5` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.9.0-rc.1` — **local HTTP API freeze candidate** for PFx Responsive. Browser preview runtime remains experimental and **not safe for public deployment**.
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
@@ -15,6 +15,17 @@ Independent Node.js browser-control backend for PFx Responsive. Uses native Chro
 - Optional API settings: `PORT`, `PFX_PREVIEW_TOKEN` (24+ characters), `PFX_ALLOWED_ORIGIN` (exact origin). `HOST` must be loopback in this alpha release.
 
 All non-health API requests require `Authorization: Bearer <token>`. Browsers making cross-origin requests are denied by default; configure one exact origin if needed. No wildcard CORS.
+
+
+### Frozen local API contract candidate
+
+The public-facing integration surface for **PFx Responsive** is specified in
+[`docs/API-CONTRACT-v1.md`](docs/API-CONTRACT-v1.md). It is covered by
+`npm run test:contract` and the CI `unit` job. This freezes the client-side
+HTTP protocol during internal development; it **does not** approve public
+network binding or guarantee security for hostile multi-user websites.
+See [`docs/RELEASE-READINESS.md`](docs/RELEASE-READINESS.md) for the
+remaining verification requirements.
 
 ## HTTP API
 

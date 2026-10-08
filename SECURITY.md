@@ -58,3 +58,13 @@ closes, and responds with HTTP 413 when an image exceeds the configured limit.
 The limit applies **after Chromium finishes encoding** and is not a hard bound
 on screenshot encoding memory. Per-tenant aggregate screenshot bandwidth and
 host-level CPU/RAM controls are still required before public deployment.
+
+## Candidate HTTP API contract (`0.9.0-rc.1`)
+
+The local JSON/PNG/SSE protocol is frozen for integration tests as specified
+in `docs/API-CONTRACT-v1.md`. Contract tests exercise authentication, tenant
+non-disclosure, response payloads, errors, lifecycle, and refusal when the
+Core is unavailable. The release candidate is for internal tool development;
+**do not** infer independent security approval, actual production-host resource
+isolation, or safe public multi-user deployment from an API contract freeze.
+See `docs/RELEASE-READINESS.md`.

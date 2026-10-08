@@ -14,6 +14,8 @@ jobs:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm run check
+      - name: Verify local HTTP API contract
+        run: npm run test:contract
       - run: npm run test:unit
   browser-validation:
     runs-on: ubuntu-22.04

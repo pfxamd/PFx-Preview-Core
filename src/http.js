@@ -3,6 +3,7 @@ import { createAuthenticator } from './auth.js';
 
 function statusFor(error) {
   if (/not found/i.test(error.message)) return 404;
+  if (/Core is not accepting sessions|Core is shutting down/i.test(error.message)) return 503;
   if (/capacity|already active|pixel budget/i.test(error.message)) return 409;
   if (/body too large|screenshot size limit/i.test(error.message)) return 413;
   return 400;
