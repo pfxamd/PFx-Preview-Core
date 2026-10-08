@@ -26,6 +26,7 @@ jobs:
       - run: npm test
         env:
           PFX_RUN_BROWSER: '1'
+          PFX_REQUIRE_BROWSER_NETWORK: '1'
   external-smoke:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest

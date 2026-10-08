@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { validateTarget } from './security.js';
+import { GuardedEgressProxy } from './egress.js';
 
 const limits = { maxSessions: 4, idleMs: 10 * 60_000, navigationMs: 25_000 };
 const checkViewport = ({ width, height, deviceScaleFactor = 1 }) => {
@@ -11,9 +12,11 @@ const checkViewport = ({ width, height, deviceScaleFactor = 1 }) => {
 };
 
 export class PreviewCore {
-  constructor({ browserFactory, validate = validateTarget, config = {} } = {}) {
+  constructor({ browserFactory, validate = validateTarget, egressFactory = () => new GuardedEgressProxy(), config = {} } = {}) {
     this.factory = browserFactory;
     this.validate = validate;
+    this.egressFactory = egressFactory;
+    this.egress = null;
     this.config = { ...limits, ...config };
     this.sessions = new Map();
     this.pendingCreates = 0;
@@ -25,11 +28,23 @@ export class PreviewCore {
       const { chromium } = await import('playwright-core');
       this.factory = () => chromium.launch({
         headless: true,
+        args: [
+          '--proxy-bypass-list=<-loopback>', '--disable-quic', '--disable-background-networking',
+          '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
+        ],
         ...(process.env.PFX_CHROMIUM_PATH ? { executablePath: process.env.PFX_CHROMIUM_PATH } : {})
       });
     }
-    this.browser = await this.factory();
-    return this;
+    this.egress = this.egressFactory();
+    try {
+      await this.egress.start();
+      this.browser = await this.factory();
+      return this;
+    } catch (error) {
+      await this.egress.stop().catch(() => {});
+      this.egress = null;
+      throw error;
+    }
   }
   async create({ url, width = 1280, height = 800, deviceScaleFactor = 1 } = {}) {
     if (!this.browser) throw new Error('Core not started');
@@ -41,7 +56,8 @@ export class PreviewCore {
       const target = await this.validate(url);
       context = await this.browser.newContext({
         viewport: { width, height }, deviceScaleFactor, serviceWorkers: 'block', acceptDownloads: false,
-        permissions: []
+        permissions: [],
+        proxy: { server: this.egress.url, bypass: '<-loopback>' }
       });
       // Defense in depth only: request routing cannot pin DNS or enforce network isolation.
       await context.route('**/*', async route => {
@@ -147,5 +163,7 @@ export class PreviewCore {
     await Promise.all([...this.sessions.keys()].map(id => this.close(id)));
     if (this.browser) await this.browser.close();
     this.browser = null;
+    if (this.egress) await this.egress.stop();
+    this.egress = null;
   }
 }

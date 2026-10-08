@@ -84,3 +84,26 @@ test('pending session creations count toward capacity', async () => {
   assert.equal(core.pendingCreates, 0);
   await core.stop();
 });
+
+test('every browser context receives a dedicated localhost egress proxy', async () => {
+  let proxyUrl;
+  let contexts = 0;
+  const browserFactory = async () => ({
+    newContext: async options => {
+      contexts++;
+      proxyUrl = options.proxy.server;
+      assert.match(proxyUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+      assert.equal(options.proxy.bypass, '<-loopback>');
+      assert.equal(options.serviceWorkers, 'block');
+      return { route: async () => {}, newPage: async () => ({ goto: async () => {}, url: () => 'https://example.com', viewportSize: () => ({ width: 390, height: 844 }) }), close: async () => {} };
+    },
+    close: async () => {}
+  });
+  const core = new PreviewCore({ browserFactory, validate: async u => u });
+  await core.start();
+  await core.create({ url: 'https://example.com' });
+  await core.create({ url: 'https://example.org' });
+  assert.equal(contexts, 2);
+  assert.ok(core.egress.url);
+  await core.stop();
+});

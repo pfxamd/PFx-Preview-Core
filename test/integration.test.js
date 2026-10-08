@@ -53,18 +53,21 @@ liveTest('real Chromium: receives streamed JPEG screencast frames and cleans up'
   } finally { await core.stop(); }
 });
 
-liveTest('external website navigation smoke test (opt-in only)', {
-  skip: !process.env.PFX_RUN_EXTERNAL, timeout: 40_000
-}, async () => {
-  const core = new PreviewCore();
-  await core.start();
-  try {
-    const session = await core.create({ url: 'https://example.com/' });
-    assert.ok(session.url.startsWith('https://example.com'));
-    assert.ok((await core.screenshot(session.id)).length > 1000);
-    await core.close(session.id);
-  } finally { await core.stop(); }
-});
+for (const target of ['https://example.com/', 'https://www.w3.org/']) {
+  liveTest(`external real Chromium URL and screenshot: ${target}`, {
+    skip: !process.env.PFX_RUN_EXTERNAL, timeout: 60_000
+  }, async () => {
+    const core = new PreviewCore({ config: { navigationMs: 40_000 } });
+    await core.start();
+    try {
+      const session = await core.create({ url: target });
+      assert.equal(new URL(session.url).protocol, 'https:');
+      assert.ok((await core.get(session.id).page.title()).length > 0, 'Page must have a title');
+      assert.ok((await core.screenshot(session.id)).length > 1000);
+      await core.close(session.id);
+    } finally { await core.stop(); }
+  });
+}
 
 liveTest('real Chromium: separate contexts do not share cookies', { timeout: 30_000 }, async () => {
   const core = new PreviewCore();
