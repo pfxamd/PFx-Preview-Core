@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { createServer, connect as connectTCP } from 'node:net';
 import { spawn } from 'node:child_process';
 
@@ -9,8 +8,7 @@ const socketPath = process.env.PFX_HOST_PROXY_SOCKET;
 const browserPath = process.env.PFX_REAL_CHROMIUM;
 const port = 34177;
 if (!socketPath || !browserPath) throw new Error('Missing isolated worker configuration');
-const result = spawnSync('/usr/sbin/ip', ['link', 'set', 'lo', 'up']);
-if (result.status !== 0) throw new Error('Failed to bring up sandbox loopback');
+// Loopback was enabled by sandbox-bootstrap before chroot.
 const outgoing = new Set();
 const relay = createServer(client => {
   const host = connectTCP({ path: socketPath });
@@ -23,10 +21,14 @@ const relay = createServer(client => {
   client.pipe(host); host.pipe(client);
 });
 relay.listen(port, '127.0.0.1', () => {
-  const chrome = spawn(browserPath, process.argv.slice(2), {
+  const chrome = spawn('/usr/bin/setpriv', [
+    '--bounding-set=-all', '--inh-caps=-all', '--ambient-caps=-all', '--no-new-privs',
+    '--', '/usr/bin/prlimit', '--nofile=512:512', '--fsize=67108864:67108864',
+    '--core=0:0', '--cpu=180:180', '--', browserPath, ...process.argv.slice(2)
+  ], {
     stdio: ['ignore', 'inherit', 'inherit', 3, 4],
     // Never expose server tokens or cloud credentials to a compromised browser.
-    env: Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'XDG_RUNTIME_DIR']
+    env: Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'XDG_RUNTIME_DIR', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME']
       .filter(name => typeof process.env[name] === 'string')
       .map(name => [name, process.env[name]]))
   });

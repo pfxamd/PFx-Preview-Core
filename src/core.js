@@ -4,6 +4,10 @@ import { GuardedEgressProxy } from './egress.js';
 import { HostBridge } from './host-bridge.js';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
+import { mkdtemp, rmdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { verifyOSResourceLimits } from './resource-policy.js';
 
 const limits = { maxSessions: 4, idleMs: 10 * 60_000, maxAgeMs: 30 * 60_000,
   navigationMs: 25_000, maxSessionPixels: 12_000_000, maxTotalPixels: 48_000_000 };
@@ -31,6 +35,7 @@ export class PreviewCore {
     this.egressFactory = egressFactory;
     this.egress = null;
     this.bridge = null;
+    this.sandboxRoot = null;
     this.proxyUrl = null;
     this.config = { ...limits, ...config };
     this.sessions = new Map();
@@ -52,6 +57,7 @@ export class PreviewCore {
   }
   async startInternal() {
     const realBrowser = !this.customFactory;
+    if (realBrowser && process.env.PFX_REQUIRE_OS_QUOTAS === '1') await verifyOSResourceLimits();
     if (realBrowser && process.platform !== 'linux') throw new Error('Secure browser runtime currently requires Linux network namespaces');
     this.egress = this.egressFactory();
     try {
@@ -63,6 +69,7 @@ export class PreviewCore {
         if (!existsSync(realPath)) throw new Error('Chromium binary not installed');
         this.bridge = await new HostBridge(this.egress.url).start();
         this.proxyUrl = 'http://127.0.0.1:34177';
+        this.sandboxRoot = await mkdtemp(join(tmpdir(), 'pfx-fs-'));
         this.factory = () => chromium.launch({
           headless: true,
           executablePath: fileURLToPath(new URL('./netns-launcher.sh', import.meta.url)),
@@ -70,6 +77,8 @@ export class PreviewCore {
             ...sanitizedWorkerEnv(),
             PFX_NODE_BINARY: process.execPath,
             PFX_NETNS_WORKER: fileURLToPath(new URL('./netns-relay.js', import.meta.url)),
+            PFX_SANDBOX_BOOTSTRAP: fileURLToPath(new URL('./sandbox-bootstrap.sh', import.meta.url)),
+            PFX_SANDBOX_ROOT: this.sandboxRoot,
             PFX_REAL_CHROMIUM: realPath,
             PFX_HOST_PROXY_SOCKET: this.bridge.path
           },
@@ -88,6 +97,8 @@ export class PreviewCore {
     } catch (error) {
       if (this.bridge) await this.bridge.stop().catch(() => {});
       this.bridge = null;
+      if (this.sandboxRoot) await rmdir(this.sandboxRoot).catch(() => {});
+      this.sandboxRoot = null;
       await this.egress.stop().catch(() => {});
       this.egress = null;
       this.proxyUrl = null;
@@ -274,6 +285,8 @@ export class PreviewCore {
     this.browser = null;
     if (this.bridge) await this.bridge.stop().catch(() => {});
     this.bridge = null;
+    if (this.sandboxRoot) await rmdir(this.sandboxRoot).catch(() => {});
+    this.sandboxRoot = null;
     if (this.egress) await this.egress.stop().catch(() => {});
     this.egress = null;
     this.proxyUrl = null;

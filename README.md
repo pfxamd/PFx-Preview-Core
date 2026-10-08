@@ -1,12 +1,12 @@
 # PFx Preview Core
 
-**Status:** `0.5.0-alpha.1` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.6.0-alpha.1` — experimental browser preview runtime. **Not safe for public deployment.**
 
-Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate user/network namespace with zero outbound routes**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
+Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
 ## Requirements
 
-- Node.js 22+ on Linux with unprivileged user+network namespaces enabled, `unshare` from util-linux and `/usr/sbin/ip` from iproute2
+- Node.js 22+ on Linux with unprivileged user+network+mount+PID namespaces enabled and private procfs mounts permitted, `unshare`, `mount`, `chroot`, `setpriv`, `prlimit` from util-linux and `/usr/sbin/ip` from iproute2
 - This alpha **fails closed** when Linux namespace creation is unavailable: it never falls back to unrestricted Chromium networking.
 - Install: `npm install`
 - Download compatible Chromium: `npx playwright-core install chromium`
@@ -97,3 +97,33 @@ Public destination
 The Chromium child receives a **minimal environment allowlist** rather than server tokens. The relay, bridge, and guarded proxy shut down with the core. Platform requirements are intentionally strict; a host that forbids user namespaces cannot start the real-browser engine.
 
 **Verification status:** [Core CI #8](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37757983575) passed real external HTTPS navigation and Chromium integration. The isolated full-Core load job in [run #37761403954](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37761403954) passed 10, 25 and 50 synthetic sessions, but the other Chromium jobs failed on an inconsistent CI runner. Runner pinning and namespace preflight need successful post-fix CI results. The OS-level isolation protects network paths only, **not filesystem access, fork/CPU exhaustion, process privileges, or renderer escapes**. Public deployment remains prohibited until those boundaries are independently secured and tested.
+
+## Experimental filesystem / process isolation (`0.6.0-alpha.1`)
+
+The browser launcher now **fails closed** unless Linux permits creating user,
+network, mount, PID, IPC and UTS namespaces and mounting a private procfs.
+Inside the namespace, a freshly-mounted tmpfs root is populated with read-only
+`/usr`, a restricted Chromium bundle, minimal TLS/font configuration and a
+read-only Unix socket directory. The relay executes as PID 1 inside `chroot`;
+Chromium is launched with no-new-privileges, dropped capability bounding set,
+finite file descriptor, file size and per-process CPU limits. Host home folders,
+repositories, configuration secrets and other application data are not mounted.
+
+**Limits of this boundary:** This is not yet an independently security-reviewed
+Linux browser sandbox. `chroot` and namespaces do not replace seccomp filtering,
+process credential separation, or a constrained OCI/container runtime. The
+relay and browser share a Unix namespace and the writable tmpfs root. Production
+still needs an independent security audit and authenticated per-tenant isolation.
+
+**Kernel resource policy:** `PFX_REQUIRE_OS_QUOTAS=1` requires finite effective
+cgroup v2 `memory.max`, `pids.max` and `cpu.max` limits, and refuses to start
+without them. Operators must apply those limits to the whole service **before**
+launch; this mode verifies OS-enforced quotas but does not create or delegate
+them. Defaults: max 8 GiB RAM, 1024 PIDs, 8 CPU cores. The per-process `prlimit`
+limits alone are not aggregate resource caps.
+
+CI runs `test/filesystem.test.js` with `PFX_REQUIRE_FS_SANDBOX=1`. On hosts
+that forbid private procfs mounts, the real browser intentionally does not
+start. The 90-second `scripts/soak.js` runs on an explicit `[soak]` commit or
+manual workflow dispatch and exercises repeated sessions, live frames and
+cleanup with a fixture site (not a guarantee for real-world pages).

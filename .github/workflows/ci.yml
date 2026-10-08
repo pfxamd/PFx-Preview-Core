@@ -30,12 +30,17 @@ jobs:
         run: npx playwright-core install chromium
       - name: Verify isolated runtime prerequisites
         run: bash scripts/prepare-ci-netns.sh
+      - name: Verify filesystem and PID sandbox isolation
+        run: node --test test/filesystem.test.js
+        env:
+          PFX_REQUIRE_FS_SANDBOX: '1'
       - name: Chromium integration and security tests
         run: npm test
         env:
           PFX_RUN_BROWSER: '1'
           PFX_REQUIRE_BROWSER_NETWORK: '1'
           PFX_REQUIRE_NETNS: '1'
+          PFX_REQUIRE_FS_SANDBOX: '1'
       - name: External HTTPS website compatibility
         if: github.event_name != 'pull_request'
         run: node --test test/integration.test.js
@@ -44,8 +49,14 @@ jobs:
           PFX_RUN_EXTERNAL: '1'
           PFX_REQUIRE_BROWSER_NETWORK: '1'
           PFX_REQUIRE_NETNS: '1'
+          PFX_REQUIRE_FS_SANDBOX: '1'
       - name: Isolated 10/25/50 Core API stress load
         if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[load]')
         run: npm run bench:isolated
         env:
           PFX_LOAD_TIERS: '10,25,50'
+      - name: Extended isolated browser stability test
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[soak]')
+        run: npm run bench:soak
+        env:
+          PFX_SOAK_SECONDS: '90'
