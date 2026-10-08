@@ -147,3 +147,57 @@ test('hard maximum age expires active streams even when idle timer is refreshed'
     assert.equal(ended,1);
   } finally {await core.stop();}
 });
+
+
+test('closing sessions remain within capacity and pixel accounting until context teardown finishes', async () => {
+  let finish;
+  const gate = new Promise(resolve => { finish = resolve; });
+  const { factory, counters } = mockRuntime();
+  const core = new PreviewCore({
+    browserFactory: async () => {
+      const browser = await factory();
+      const original = browser.newContext;
+      browser.newContext = async (...args) => {
+        const context = await original(...args);
+        const close = context.close;
+        context.close = async () => { await gate; await close(); };
+        return context;
+      };
+      return browser;
+    },
+    validate: async url => url,
+    config: { maxSessions: 1, maxTotalPixels: 300_000 }
+  });
+  await core.start();
+  try {
+    const session = await core.create({ url: 'https://example.com', width: 390, height: 640 });
+    const closing = core.close(session.id);
+    assert.equal(core.inFlightCloses.size, 1);
+    assert.equal(core.allocatedPixels(), 390 * 640);
+    await assert.rejects(core.create({ url: 'https://example.com', width: 390, height: 640 }), /capacity/);
+    const stopping = core.stop();
+    let stopped = false;
+    void stopping.then(() => { stopped = true; });
+    await Promise.resolve();
+    assert.equal(stopped, false);
+    finish();
+    assert.equal(await closing, true);
+    await stopping;
+    assert.equal(core.allocatedPixels(), 0);
+    assert.equal(core.inFlightCloses.size, 0);
+    assert.equal(counters.contextsClosed, 1);
+  } finally { finish(); await core.stop(); }
+});
+
+test('concurrent close calls share one cleanup and keep the slot reserved', async () => {
+  const { factory, counters } = mockRuntime();
+  const core = new PreviewCore({ browserFactory: factory, validate: async u => u });
+  await core.start();
+  const session = await core.create({ url: 'https://example.com' });
+  const first = core.close(session.id);
+  const second = core.close(session.id);
+  assert.strictEqual(first, second);
+  assert.equal(await first, true);
+  assert.equal(counters.contextsClosed, 1);
+  await core.stop();
+});

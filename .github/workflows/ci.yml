@@ -41,6 +41,11 @@ jobs:
           PFX_REQUIRE_BROWSER_NETWORK: '1'
           PFX_REQUIRE_NETNS: '1'
           PFX_REQUIRE_FS_SANDBOX: '1'
+      - name: Browser disconnect recovery and cleanup
+        run: npm run bench:soak
+        env:
+          PFX_SOAK_SECONDS: '25'
+          PFX_SOAK_RECOVERY_INTERVAL: '7'
       - name: External HTTPS website compatibility
         if: github.event_name != 'pull_request'
         run: node --test test/integration.test.js
@@ -60,3 +65,29 @@ jobs:
         run: npm run bench:soak
         env:
           PFX_SOAK_SECONDS: '90'
+
+  release-gate:
+    # An explicit RC commit launches a 30-minute stability gate and a 20-site matrix.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[rc]'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium
+        run: npx playwright-core install chromium
+      - name: Verify isolated runtime prerequisites
+        run: bash scripts/prepare-ci-netns.sh
+      - name: Verify 20 public sites with genuine Chromium navigation
+        run: npm run bench:compat
+        env:
+          PFX_COMPAT_MIN_SUCCESS: '15'
+          PFX_COMPAT_TIMEOUT_MS: '25000'
+      - name: Thirty-minute isolated stability and recovery test
+        run: npm run bench:soak
+        env:
+          PFX_SOAK_SECONDS: '1800'
+          PFX_SOAK_RECOVERY_INTERVAL: '20'

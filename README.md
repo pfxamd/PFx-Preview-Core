@@ -98,6 +98,13 @@ The Chromium child receives a **minimal environment allowlist** rather than serv
 
 **Verification status:** [Core CI #8](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37757983575) passed real external HTTPS navigation and Chromium integration. The isolated full-Core load job in [run #37761403954](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37761403954) passed 10, 25 and 50 synthetic sessions, but the other Chromium jobs failed on an inconsistent CI runner. Runner pinning and namespace preflight need successful post-fix CI results. The OS-level isolation protects network paths only, **not filesystem access, fork/CPU exhaustion, process privileges, or renderer escapes**. Public deployment remains prohibited until those boundaries are independently secured and tested.
 
+## Release-candidate validation (0.7.0 alpha)
+
+- Browser session capacity and pixel reservations remain accounted for **until asynchronous context close completes**. Shutdown waits for pending closes; concurrent close requests share one cleanup operation.
+- GitHub CI runs a 25-second browser-disconnect recovery smoke test on every push. The experimental release gate starts on a commit containing `[rc]` or on manual `workflow_dispatch`; it probes 20 public websites (minimum 15 successful), then performs **1800 seconds (30 minutes)** of isolated browser session cycling and repeated browser-disconnect recovery.
+- Site compatibility checks are representative samples, not a guarantee that any particular website will work. Challenges, logins and restricted ports can still fail.
+- **Release blocker:** A passed CI gate is not an independent security audit, production cgroup verification, seccomp audit, per-tenant isolation, or an authorization to expose this localhost-only runtime on a public interface. No production release should be made on this evidence alone. See `SECURITY.md`.
+
 ## Experimental filesystem / process isolation (`0.6.0-alpha.3`)
 
 The browser launcher now **fails closed** unless Linux permits creating user,

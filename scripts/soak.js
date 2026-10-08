@@ -9,6 +9,9 @@ import { GuardedEgressProxy } from '../src/egress.js';
 const durationSeconds = Number(process.env.PFX_SOAK_SECONDS || 90);
 if (!Number.isInteger(durationSeconds) || durationSeconds < 5 || durationSeconds > 3600)
   throw new Error('PFX_SOAK_SECONDS must be between 5 and 3600');
+const recoveryInterval = Number(process.env.PFX_SOAK_RECOVERY_INTERVAL || 0);
+if (!Number.isInteger(recoveryInterval) || recoveryInterval < 0 || recoveryInterval > 100000)
+  throw new Error('PFX_SOAK_RECOVERY_INTERVAL must be a nonnegative integer');
 const target = createServer((_req,res)=>res.end('<!doctype html><title>PFx soak</title><button onclick="document.title=\'clicked\'">click</button><div>isolated</div>'));
 await new Promise(resolve=>target.listen(0,'127.0.0.1',resolve));
 const port=target.address().port;
@@ -17,7 +20,7 @@ const core=new PreviewCore({
   config: {maxSessions:4, maxAgeMs:90_000},
   egressFactory:()=>new GuardedEgressProxy({resolver:async()=>[{address:'8.8.8.8',family:4}],dial:()=>connect({host:'127.0.0.1',port})})
 });
-let cycles=0, screenshots=0, frames=0, clicks=0, failed=false;
+let cycles=0, screenshots=0, frames=0, clicks=0, restarts=0, failed=false;
 const began=performance.now();
 const until=began+durationSeconds*1000;
 try {
@@ -41,8 +44,22 @@ try {
       cycles++;
     } finally {
       await Promise.allSettled(created.map(s=>core.close(s.id)));
-      if(core.sessions.size||core.allocatedPixels()!==0 || core.pendingCreates)
+      if(core.sessions.size || core.allocatedPixels() !== 0 || core.pendingCreates || core.inFlightCloses.size)
         throw new Error('Session/pixel resource leak after lifecycle');
+    }
+    if (recoveryInterval && cycles % recoveryInterval === 0) {
+      // Simulate browser-process loss: closing the Playwright browser externally
+      // must trigger the unexpected-disconnect handler and clean host resources.
+      const browser = core.browser;
+      await browser.close();
+      const deadline = performance.now() + 10_000;
+      while ((core.stopPromise || core.browser || core.egress || core.bridge) && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 30));
+      }
+      if (core.stopPromise || core.browser || core.egress || core.bridge || core.sessions.size)
+        throw new Error('Browser disconnect recovery leaked core resources');
+      await core.start();
+      restarts++;
     }
   }
   if(cycles<2 || screenshots<2 || frames<2) throw new Error('Insufficient lifecycle or streaming coverage');
@@ -52,5 +69,5 @@ finally {
   target.closeAllConnections();
   await new Promise(resolve=>target.close(resolve));
 }
-console.log(JSON.stringify({status:failed?'FAIL':'PASS',durationSeconds,cycles,clicks,screenshots,frames,elapsedSeconds:Math.round((performance.now()-began)/1000),remainingSessions:core.sessions.size}));
+console.log(JSON.stringify({status:failed?'FAIL':'PASS',durationSeconds,cycles,clicks,screenshots,frames,restarts,elapsedSeconds:Math.round((performance.now()-began)/1000),remainingSessions:core.sessions.size}));
 if(failed)process.exitCode=1;

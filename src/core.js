@@ -42,6 +42,8 @@ export class PreviewCore {
     this.pendingCreates = 0;
     this.pendingPixels = 0;
     this.inFlightCreates = new Set();
+    this.inFlightCloses = new Map();
+    this.closingPixels = 0;
     this.browser = null;
     this.startPromise = null;
     this.stopPromise = null;
@@ -110,7 +112,7 @@ export class PreviewCore {
     if (!this.browser || this.stopping) return Promise.reject(new Error('Core is not accepting sessions'));
     try { checkViewport({ width, height, deviceScaleFactor }); }
     catch (error) { return Promise.reject(error); }
-    if (this.sessions.size + this.pendingCreates >= this.config.maxSessions) return Promise.reject(new Error('Session capacity reached'));
+    if (this.sessions.size + this.pendingCreates + this.inFlightCloses.size >= this.config.maxSessions) return Promise.reject(new Error('Session capacity reached'));
     const pixels = width * height * deviceScaleFactor ** 2;
     if (pixels > this.config.maxSessionPixels || this.allocatedPixels() + pixels > this.config.maxTotalPixels) {
       return Promise.reject(new Error('Rendering pixel budget exceeded'));
@@ -123,7 +125,7 @@ export class PreviewCore {
     return creation;
   }
   allocatedPixels() {
-    return this.pendingPixels + [...this.sessions.values()].reduce((sum, s) => sum + (s.pixels || 0), 0);
+    return this.pendingPixels + this.closingPixels + [...this.sessions.values()].reduce((sum, s) => sum + (s.pixels || 0), 0);
   }
   async createInternal({ url, width, height, deviceScaleFactor, pixels }) {
     let context;
@@ -251,13 +253,27 @@ export class PreviewCore {
       return close;
     } catch (error) { session.streamPending = false; await close(); throw error; }
   }
-  async close(id) {
+  close(id) {
+    const existing = this.inFlightCloses.get(id);
+    if (existing) return existing;
     const session = this.sessions.get(id);
-    if (!session) return false;
+    if (!session) return Promise.resolve(false);
     this.sessions.delete(id);
-    if (session.stream) await session.stream();
-    await session.context.close();
-    return true;
+    // A closing context still consumes capacity and pixels until OS resources
+    // are actually released. Track it before yielding to asynchronous close.
+    this.closingPixels += session.pixels || 0;
+    const closing = (async () => {
+      try {
+        try { if (session.stream) await session.stream(); }
+        finally { await session.context.close(); }
+        return true;
+      } finally {
+        this.closingPixels -= session.pixels || 0;
+        this.inFlightCloses.delete(id);
+      }
+    })();
+    this.inFlightCloses.set(id, closing);
+    return closing;
   }
   async prune(now = Date.now()) {
     // Streaming sessions have a hard maximum lifetime to prevent slot exhaustion.
@@ -279,6 +295,7 @@ export class PreviewCore {
     if (this.startPromise) await this.startPromise.catch(() => {});
     await Promise.allSettled([...this.inFlightCreates]);
     await Promise.allSettled([...this.sessions.keys()].map(id => this.close(id)));
+    await Promise.allSettled([...this.inFlightCloses.values()]);
     // A crashed browser or failed context close must not strand the host-side
     // network bridge or egress proxy after shutdown.
     if (this.browser) await this.browser.close().catch(() => {});
