@@ -1,6 +1,6 @@
 {
   "name": "@pfxamd/preview-core",
-  "version": "0.8.0-alpha.2",
+  "version": "0.8.0-alpha.3",
   "description": "Isolated browser preview runtime with interactive CDP streaming",
   "private": true,
   "type": "module",
@@ -14,9 +14,10 @@
     "test:integration": "node --test test/integration.test.js test/server.test.js",
     "bench:load": "node scripts/load-profile.js",
     "bench:isolated": "node scripts/isolated-load.js",
-    "check": "node --check src/netns-relay.js && node --check src/host-bridge.js && node --check src/egress.js && node --check src/core.js && node --check src/security.js && node --check src/compatibility-audit.js && node --check src/server.js && node --check src/http.js && node --check src/auth.js && node --check src/resource-policy.js && bash -n src/sandbox-bootstrap.sh src/netns-launcher.sh && node --check scripts/soak.js && node --check scripts/compatibility.js",
+    "check": "node --check src/netns-relay.js && node --check src/host-bridge.js && node --check src/egress.js && node --check src/core.js && node --check src/security.js && node --check src/compatibility-audit.js && node --check src/server.js && node --check src/http.js && node --check src/auth.js && node --check src/resource-policy.js && bash -n src/sandbox-bootstrap.sh src/netns-launcher.sh && node --check scripts/soak.js && node --check scripts/compatibility.js && node --check scripts/audit-os-quotas.js",
     "bench:soak": "node scripts/soak.js",
-    "bench:compat": "node scripts/compatibility.js"
+    "bench:compat": "node scripts/compatibility.js",
+    "audit:os-quotas": "node scripts/audit-os-quotas.js"
   },
   "dependencies": {
     "playwright-core": "1.57.0"

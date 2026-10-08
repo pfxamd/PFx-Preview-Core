@@ -158,3 +158,11 @@ shared and tenant credentials causes startup to fail.
 independent sandbox and SSRF audits, dedicated tenant resource compartments, abuse
 controls, and production resource-limit validation. A tenant-scoped token is not a
 replacement for these protections.
+
+### Verify kernel-enforced resource limits before deployment
+
+Run `npm run audit:os-quotas` **inside the service's own Linux cgroup**. It fails
+closed if memory, CPU or PID limits are missing; a passing result is a
+preflight measurement, not a production security certificate. For mandatory
+checks at browser startup use `PFX_REQUIRE_OS_QUOTAS=1`. See
+`docs/OS-RESOURCE-VALIDATION.md`. The public server is still disabled.

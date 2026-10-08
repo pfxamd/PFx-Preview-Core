@@ -29,3 +29,13 @@
 ## Incident handling
 
 The default HTTP server listens on loopback only. Preserve this restriction. If a publicly accessible deployment is accidentally created, shut it down and rotate API credentials before resuming development.
+
+## OS resource probe (implemented; deployment verification pending)
+
+- `npm run audit:os-quotas` reads **real** Linux cgroup v2 memory, PID and CPU
+  limits plus usage and OOM counters; missing or unlimited limits return a
+  nonzero exit code rather than a passing result.
+- `PFX_REQUIRE_OS_QUOTAS=1` verifies finite quotas at real-browser startup.
+- These checks do **not** install quotas, provide per-tenant kernel isolation,
+  or certify the service. See `docs/OS-RESOURCE-VALIDATION.md` for the actual
+  production-host verification requirements.
