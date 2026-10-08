@@ -1,6 +1,6 @@
 {
   "name": "@pfxamd/preview-core",
-  "version": "0.8.0-alpha.5",
+  "version": "0.8.0-alpha.6",
   "description": "Isolated browser preview runtime with interactive CDP streaming",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "test:unit": "node --test test/tenants.test.js test/core.test.js test/lifecycle.test.js test/security.test.js test/egress.test.js test/resource-policy.test.js test/compatibility-audit.test.js test/stream-limits.test.js",
+    "test:unit": "node --test test/tenants.test.js test/core.test.js test/lifecycle.test.js test/security.test.js test/egress.test.js test/resource-policy.test.js test/compatibility-audit.test.js test/stream-limits.test.js test/screenshot-limits.test.js",
     "test:integration": "node --test test/integration.test.js test/server.test.js",
     "bench:load": "node scripts/load-profile.js",
     "bench:isolated": "node scripts/isolated-load.js",

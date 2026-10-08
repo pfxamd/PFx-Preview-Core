@@ -179,3 +179,11 @@ checks at browser startup use `PFX_REQUIRE_OS_QUOTAS=1`. See
 ## Session lifecycle regression guards (`0.8.0-alpha.4`)
 
 Concurrent resize, stream establishment, navigation and session close are checked against the live session state after asynchronous work. Closing contexts retain a fixed rendering-pixel reservation until teardown completes, so failed in-flight resizes cannot corrupt global accounting. These are application lifecycle controls, **not** per-tenant kernel CPU/memory or process isolation. Tests cover queued/failed/completed resize races and late CDP navigation/stream allocation.
+
+### Screenshot output and concurrency safeguards (`0.8.0-alpha.6`)
+
+Screenshots are restricted to one active capture per session, with a 48 MiB
+PNG response budget by default (`maxScreenshotBytes`, hard cap 64 MiB). Oversized
+screenshots return HTTP 413; overlapping requests return HTTP 409. A capture
+finishing after its session closed cannot deliver an image. These are response
+limits, not kernel memory/cgroup or per-tenant bandwidth guarantees.

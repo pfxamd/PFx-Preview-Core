@@ -12,7 +12,8 @@ import { verifyOSResourceLimits } from './resource-policy.js';
 const limits = { maxSessions: 4, idleMs: 10 * 60_000, maxAgeMs: 30 * 60_000,
   navigationMs: 25_000, maxSessionPixels: 12_000_000, maxTotalPixels: 48_000_000,
   // The SSE output is base64; count the encoded payload actually sent to clients.
-  maxStreamFrameBytes: 8 * 1024 * 1024, maxStreamBytes: 512 * 1024 * 1024 };
+  maxStreamFrameBytes: 8 * 1024 * 1024, maxStreamBytes: 512 * 1024 * 1024,
+  maxScreenshotBytes: 48 * 1024 * 1024 };
 
 export function sanitizedWorkerEnv(from = process.env) {
   // The network-namespace worker must never inherit API tokens, cloud credentials
@@ -44,6 +45,10 @@ export class PreviewCore {
         this.config.maxStreamFrameBytes < 1 || this.config.maxStreamFrameBytes > 16 * 1024 * 1024 ||
         this.config.maxStreamBytes < this.config.maxStreamFrameBytes || this.config.maxStreamBytes > 1024 ** 3) {
       throw new Error('Invalid stream data limits');
+    }
+    if (!Number.isSafeInteger(this.config.maxScreenshotBytes) ||
+        this.config.maxScreenshotBytes < 1 || this.config.maxScreenshotBytes > 64 * 1024 * 1024) {
+      throw new Error('Invalid screenshot size limit');
     }
     if (this.config.maxPixelsPerOwner != null &&
         (!Number.isSafeInteger(this.config.maxPixelsPerOwner) || this.config.maxPixelsPerOwner < 1 ||
@@ -274,7 +279,17 @@ export class PreviewCore {
     return { accepted: true };
   }
   async screenshot(id, owner = null) {
-    return this.get(id, owner).page.screenshot({ type: 'png', fullPage: false, timeout: 15000 });
+    const session = this.get(id, owner);
+    if (session.screenshotPending) throw new Error('Screenshot already active');
+    session.screenshotPending = true;
+    try {
+      const image = await session.page.screenshot({ type: 'png', fullPage: false, timeout: 15000 });
+      if (this.sessions.get(id) !== session || this.stopping) throw new Error('Session not found');
+      if (!Buffer.isBuffer(image) || image.byteLength > this.config.maxScreenshotBytes) {
+        throw new Error('Screenshot size limit exceeded');
+      }
+      return image;
+    } finally { session.screenshotPending = false; }
   }
   async stream(id, emit, options = {}, owner = null) {
     const session = this.get(id, owner);

@@ -48,3 +48,13 @@ A session close now prevents queued resizes, late URL validation results and del
 ## Stream output budgets (`0.8.0-alpha.5`)
 
 The core rejects invalid CDP streaming options and closes a stream when a single encoded frame or the cumulative encoded JPEG payload exceeds its configured limit. Client disconnect callbacks cannot strand the CDP session during cleanup. This reduces output amplification from long-lived streams but does not restrict total network traffic across repeated streams or provide independent tenant-level bandwidth isolation.
+
+## Screenshot output budget (`0.8.0-alpha.6`)
+
+PNG screenshots have a 48 MiB default response limit (`maxScreenshotBytes`),
+with a hard configurable upper bound of 64 MiB. The core permits only one
+in-flight capture per session, rejects captures completed after their session
+closes, and responds with HTTP 413 when an image exceeds the configured limit.
+The limit applies **after Chromium finishes encoding** and is not a hard bound
+on screenshot encoding memory. Per-tenant aggregate screenshot bandwidth and
+host-level CPU/RAM controls are still required before public deployment.
