@@ -78,3 +78,7 @@ location by following a malicious HTTP redirect. Its SSE connection uses
 cannot carry the required header. Do not embed this token in public UI bundles
 or put it in URLs. The helper is **not** an independently reviewed security
 boundary and is not safe public-hosting middleware.
+
+### Windows portable mode
+
+The opt-in Windows runtime (`PFX_LOCAL_WINDOWS=1`) is single-operator and loopback-only. It preserves URL checks and the guarded DNS-pinned proxy but **does not provide the Linux kernel namespaces, chroot, OS egress firewall, or per-tenant process isolation**. No untrusted tenant mode or public hosting is permitted. Never treat successful Windows functional tests as sandbox validation.

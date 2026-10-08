@@ -30,6 +30,17 @@ const checkViewport = ({ width, height, deviceScaleFactor = 1 }) => {
   }
 };
 
+
+// Explicit opt-in: the portable Windows mode is single-operator loopback only.
+// Unlike the Linux runtime it has NO kernel network namespace, mount namespace
+// or chroot. It must not be advertised as a public hostile-tenant sandbox.
+export function assertWindowsLocalRuntime({ platform = process.platform, enabled = process.env.PFX_LOCAL_WINDOWS, tenants = process.env.PFX_TENANTS_JSON } = {}) {
+  if (platform !== 'win32') return false;
+  if (enabled !== '1') throw new Error('Windows browser runtime requires explicit PFX_LOCAL_WINDOWS=1');
+  if (tenants) throw new Error('Windows local browser runtime does not support untrusted tenants');
+  return true;
+}
+
 export class PreviewCore {
   constructor({ browserFactory, validate = validateTarget, egressFactory = () => new GuardedEgressProxy(), config = {} } = {}) {
     this.factory = browserFactory;
@@ -81,8 +92,10 @@ export class PreviewCore {
   }
   async startInternal() {
     const realBrowser = !this.customFactory;
-    if (realBrowser && process.env.PFX_REQUIRE_OS_QUOTAS === '1') await verifyOSResourceLimits();
-    if (realBrowser && process.platform !== 'linux') throw new Error('Secure browser runtime currently requires Linux network namespaces');
+    if (realBrowser && !['linux', 'win32'].includes(process.platform)) throw new Error('Unsupported browser runtime platform');
+    const windowsLocal = realBrowser && assertWindowsLocalRuntime();
+    if (windowsLocal && process.env.PFX_REQUIRE_OS_QUOTAS === '1') throw new Error('Linux cgroup quotas are unavailable in Windows local mode');
+    if (realBrowser && !windowsLocal && process.env.PFX_REQUIRE_OS_QUOTAS === '1') await verifyOSResourceLimits();
     this.egress = this.egressFactory();
     try {
       await this.egress.start();
@@ -91,7 +104,19 @@ export class PreviewCore {
         const { chromium } = await import('playwright-core');
         const realPath = process.env.PFX_CHROMIUM_PATH || chromium.executablePath();
         if (!existsSync(realPath)) throw new Error('Chromium binary not installed');
-        this.bridge = await new HostBridge(this.egress.url).start();
+        if (windowsLocal) {
+          // GuardedEgressProxy still DNS-pins public connections, but Chromium
+          // itself is not confined by a kernel firewall or Linux namespaces.
+          this.factory = () => chromium.launch({
+            headless: true,
+            executablePath: realPath,
+            proxy: { server: this.egress.url, bypass: '<-loopback>' },
+            args: ['--disable-quic', '--disable-background-networking',
+              '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+              '--proxy-bypass-list=<-loopback>']
+          });
+        } else {
+          this.bridge = await new HostBridge(this.egress.url).start();
         this.proxyUrl = 'http://127.0.0.1:34177';
         this.sandboxRoot = await mkdtemp(join(tmpdir(), 'pfx-fs-'));
         this.factory = () => chromium.launch({
@@ -111,6 +136,7 @@ export class PreviewCore {
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
           ]
         });
+        } // Linux namespace sandbox only.
       }
       this.browser = await this.factory();
       this.browser.on?.('disconnected', () => {

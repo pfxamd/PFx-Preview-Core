@@ -93,3 +93,18 @@ jobs:
         env:
           PFX_SOAK_SECONDS: '1800'
           PFX_SOAK_RECOVERY_INTERVAL: '20'
+
+  windows-local-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npx playwright-core install chromium
+      - name: Verify experimental single-operator Windows Core runtime
+        run: node scripts/windows-smoke.js
+        env:
+          PFX_LOCAL_WINDOWS: '1'

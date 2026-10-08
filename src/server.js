@@ -5,6 +5,7 @@ import { createPreviewServer } from './http.js';
 const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT || 4177);
 const tenants = process.env.PFX_TENANTS_JSON ? JSON.parse(process.env.PFX_TENANTS_JSON) : undefined;
+if (process.platform === 'win32' && tenants) throw new Error('Windows runtime is local single-operator only');
 const token = tenants ? undefined : (process.env.PFX_PREVIEW_TOKEN || randomBytes(32).toString('hex'));
 if (!['127.0.0.1', '::1'].includes(host)) {
   throw new Error('Public binding is disabled in this alpha release until independent network isolation is enforced');

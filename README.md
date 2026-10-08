@@ -208,3 +208,13 @@ parses the server's event-driven SSE frames through `fetch()` (native
 Run `npm run test:client` for its dedicated tests. Keep Core credentials in a
 trusted local process, **never** in public browser JavaScript or URL query
 parameters. See `docs/API-CONTRACT-v1.md` for the integration example.
+## Experimental native Windows local runtime (0.9.1-win-alpha.1)
+
+The Linux namespace/chroot runtime remains the default on Linux. Native Windows Chromium
+is opt-in with `PFX_LOCAL_WINDOWS=1` and single-operator localhost only.
+Windows uses guarded HTTP(S) egress proxy and public URL checks but has NO Linux
+network/mount/PID namespaces, kernel egress firewall or tenant OS resource isolation.
+It is NOT security-equivalent to the Linux sandbox and may never be used for
+public, hostile or multi-user hosting. Windows rejects `PFX_TENANTS_JSON`.
+The separate PFx Responsive tool can bundle Node.js, Chromium, and Core into one
+portable ZIP with a double-click executable. Internet is needed for target sites.
