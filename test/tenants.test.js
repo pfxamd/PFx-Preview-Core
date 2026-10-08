@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { PreviewCore } from '../src/core.js';
 import { createPreviewServer } from '../src/http.js';
 import { createAuthenticator } from '../src/auth.js';
@@ -162,4 +163,27 @@ test('tenant slots cannot be reused while a close is pending and other tenant ca
     assert.equal(core.closingOwners.size, 0);
     await core.close(b.id, 'bob');
   } finally { release(); await core.stop(); }
+});
+
+
+test('tenant stream authorization is enforced before CDP allocation', async () => {
+  const { core } = makeCore();
+  await core.start();
+  try {
+    const { id } = await core.create({ url: 'https://example.com/', owner: 'alice' });
+    let allocations = 0;
+    core.get(id, 'alice').context.newCDPSession = async () => {
+      allocations++;
+      const cdp = new EventEmitter();
+      cdp.send = async () => {};
+      cdp.detach = async () => {};
+      return cdp;
+    };
+    await assert.rejects(core.stream(id, () => {}, {}, 'bob'), /not found/i);
+    assert.equal(allocations, 0);
+    const stop = await core.stream(id, () => {}, {}, 'alice');
+    assert.equal(allocations, 1);
+    await stop();
+    assert.equal(core.get(id, 'alice').stream, null);
+  } finally { await core.stop(); }
 });

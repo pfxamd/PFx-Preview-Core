@@ -240,7 +240,7 @@ export class PreviewCore {
   async screenshot(id, owner = null) {
     return this.get(id, owner).page.screenshot({ type: 'png', fullPage: false, timeout: 15000 });
   }
-  async stream(id, emit, options = {}) {
+  async stream(id, emit, options = {}, owner = null) {
     const session = this.get(id, owner);
     if (session.stream || session.streamPending) throw new Error('Stream already active');
     session.streamPending = true;
