@@ -8,6 +8,7 @@
 - Target URLs: preflight screening and the guarded egress proxy reject private/reserved IP addresses, non-HTTP(S) URLs, and unauthorized ports. DNS is resolved before proxy connection and the approved IP is pinned for that connection.
 - Browser: Linux user/mount/PID/network namespaces, chrooted temporary mount root, read-only runtime and browser files, capability and privilege reduction, no direct network routes; communication to host proxy only through a restricted UNIX socket.
 - Resource policy: viewport, session counts and per-tenant rendering pixels are application quotas, **not kernel memory/CPU quotas**. The optional `PFX_REQUIRE_OS_QUOTAS=1` flag checks finite cgroup v2 quotas placed on the **entire parent service** by the operator. It cannot create quotas.
+- Streaming output: each CDP screencast stream has a default maximum of 8 MiB of base64 JPEG data per frame and 512 MiB of encoded JPEG data cumulatively. Over-budget streams are stopped and detached before further frames are forwarded. This is **not** a global throughput quota, rate limiter or a per-tenant bandwidth budget; streaming abuse controls are still required for remote deployment.
 - The browser still runs real untrusted JavaScript and Chromium contains a large attack surface; namespace/chroot isolation is only defense in depth. OS policy must also include seccomp and verified process/user separation before a multi-user service.
 - Compatibility diagnostics now distinguish actual page navigation from common CAPTCHA/anti-bot interstitials and HTTP errors. A successful screenshot or a document title is **not** proof that the original site rendered. Challenge detection is heuristic and can miss novel interstitials; it never bypasses site restrictions.
 
@@ -43,3 +44,7 @@ The default HTTP server listens on loopback only. Preserve this restriction. If 
 ## Asynchronous close race hardening (`0.8.0-alpha.4`)
 
 A session close now prevents queued resizes, late URL validation results and delayed CDP allocations from opening additional work for an already closed session. Quota reservations are snapshotted before teardown to avoid drifting counts if an in-flight resize fails. These checks are verified in unit tests but are not a sandbox or a substitute for external security assessment.
+
+## Stream output budgets (`0.8.0-alpha.5`)
+
+The core rejects invalid CDP streaming options and closes a stream when a single encoded frame or the cumulative encoded JPEG payload exceeds its configured limit. Client disconnect callbacks cannot strand the CDP session during cleanup. This reduces output amplification from long-lived streams but does not restrict total network traffic across repeated streams or provide independent tenant-level bandwidth isolation.

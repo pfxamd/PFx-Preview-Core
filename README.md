@@ -1,6 +1,6 @@
 # PFx Preview Core
 
-**Status:** `0.8.0-alpha.4` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.8.0-alpha.5` — experimental browser preview runtime. **Not safe for public deployment.**
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
@@ -30,6 +30,15 @@ All non-health API requests require `Authorization: Bearer <token>`. Browsers ma
 | DELETE | `/sessions/:id` | Closes context and stream |
 
 The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast works on Chromium; other browser engines need a separate adapter. SSE is read with `fetch` streaming and bearer authorization, not plain `EventSource` (which cannot set bearer headers).
+
+**Stream output safeguards (alpha.5):** Each stream is limited to an 8 MiB
+base64-encoded JPEG payload per frame and 512 MiB of encoded frame payloads
+over its lifetime. Breaching either limit stops the CDP screencast and closes
+the associated SSE stream; the preview session can remain open. Internal CDP
+quality is limited to 1–85 and `everyNthFrame` to 1–60. Configurable lower
+budgets are supported for constrained deployments. These are **per-stream
+output limits**, not network egress throttling or a per-tenant bandwidth cap;
+they do not replace system-wide or deployment-level transport controls.
 
 ## Network policy
 

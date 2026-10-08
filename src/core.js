@@ -10,7 +10,9 @@ import { join } from 'node:path';
 import { verifyOSResourceLimits } from './resource-policy.js';
 
 const limits = { maxSessions: 4, idleMs: 10 * 60_000, maxAgeMs: 30 * 60_000,
-  navigationMs: 25_000, maxSessionPixels: 12_000_000, maxTotalPixels: 48_000_000 };
+  navigationMs: 25_000, maxSessionPixels: 12_000_000, maxTotalPixels: 48_000_000,
+  // The SSE output is base64; count the encoded payload actually sent to clients.
+  maxStreamFrameBytes: 8 * 1024 * 1024, maxStreamBytes: 512 * 1024 * 1024 };
 
 export function sanitizedWorkerEnv(from = process.env) {
   // The network-namespace worker must never inherit API tokens, cloud credentials
@@ -38,6 +40,11 @@ export class PreviewCore {
     this.sandboxRoot = null;
     this.proxyUrl = null;
     this.config = { ...limits, ...config };
+    if (![this.config.maxStreamFrameBytes, this.config.maxStreamBytes].every(Number.isSafeInteger) ||
+        this.config.maxStreamFrameBytes < 1 || this.config.maxStreamFrameBytes > 16 * 1024 * 1024 ||
+        this.config.maxStreamBytes < this.config.maxStreamFrameBytes || this.config.maxStreamBytes > 1024 ** 3) {
+      throw new Error('Invalid stream data limits');
+    }
     if (this.config.maxPixelsPerOwner != null &&
         (!Number.isSafeInteger(this.config.maxPixelsPerOwner) || this.config.maxPixelsPerOwner < 1 ||
          this.config.maxPixelsPerOwner > this.config.maxTotalPixels)) {
@@ -272,6 +279,12 @@ export class PreviewCore {
   async stream(id, emit, options = {}, owner = null) {
     const session = this.get(id, owner);
     if (session.stream || session.streamPending) throw new Error('Stream already active');
+    const quality = options.quality ?? 65;
+    const everyNthFrame = options.everyNthFrame ?? 1;
+    if (!Number.isInteger(quality) || quality < 1 || quality > 85 ||
+        !Number.isInteger(everyNthFrame) || everyNthFrame < 1 || everyNthFrame > 60) {
+      throw new Error('Invalid streaming options');
+    }
     session.streamPending = true;
     // Chromium CDP: event-driven frames, not a fixed-FPS video recording.
     let cdp;
@@ -284,9 +297,21 @@ export class PreviewCore {
       throw new Error('Session not found');
     }
     let closed = false;
+    let deliveredBytes = 0;
     const onFrame = frame => {
       if (closed) return;
-      try { emit({ mime: 'image/jpeg', data: frame.data, metadata: frame.metadata }); }
+      try {
+        // CDP frame.data is ASCII base64. Reject oversized frames *before*
+        // forwarding them, and close streams that consume their output budget.
+        const size = typeof frame?.data === 'string' ? frame.data.length : 0;
+        if (size === 0 || size > this.config.maxStreamFrameBytes ||
+            deliveredBytes + size > this.config.maxStreamBytes) {
+          void close();
+          return;
+        }
+        deliveredBytes += size;
+        emit({ mime: 'image/jpeg', data: frame.data, metadata: frame.metadata });
+      }
       catch { void close(); }
       finally { cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {}); }
     };
@@ -298,12 +323,12 @@ export class PreviewCore {
       if (session.stream === close) session.stream = null;
       await cdp.send('Page.stopScreencast').catch(() => {});
       await cdp.detach().catch(() => {});
-      options.onStop?.();
+      try { options.onStop?.(); } catch { /* an SSE disconnect cannot prevent cleanup */ }
     };
     session.stream = close;
     try {
       await cdp.send('Page.startScreencast', {
-        format: 'jpeg', quality: options.quality ?? 65, everyNthFrame: options.everyNthFrame ?? 1
+        format: 'jpeg', quality, everyNthFrame
       });
       session.streamPending = false;
       return close;
