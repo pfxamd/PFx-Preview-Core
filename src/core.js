@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 
 const limits = { maxSessions: 4, idleMs: 10 * 60_000, navigationMs: 25_000 };
+
+export function sanitizedWorkerEnv(from = process.env) {
+  // The network-namespace worker must never inherit API tokens, cloud credentials
+  // or application secrets, even though the Chrome grandchild uses an allowlist.
+  return Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'XDG_RUNTIME_DIR']
+    .filter(name => typeof from[name] === 'string')
+    .map(name => [name, from[name]]));
+}
 const checkViewport = ({ width, height, deviceScaleFactor = 1 }) => {
   for (const [key, n] of Object.entries({ width, height, deviceScaleFactor })) {
     const min = key === 'deviceScaleFactor' ? 1 : 240;
@@ -45,7 +53,7 @@ export class PreviewCore {
           headless: true,
           executablePath: fileURLToPath(new URL('./netns-launcher.sh', import.meta.url)),
           env: {
-            ...process.env,
+            ...sanitizedWorkerEnv(),
             PFX_NODE_BINARY: process.execPath,
             PFX_NETNS_WORKER: fileURLToPath(new URL('./netns-relay.js', import.meta.url)),
             PFX_REAL_CHROMIUM: realPath,

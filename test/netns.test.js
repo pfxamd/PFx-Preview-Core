@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { HostBridge } from '../src/host-bridge.js';
+import { sanitizedWorkerEnv } from '../src/core.js';
 
 const linux = process.platform === 'linux' && spawnSync('unshare', ['--user', '--map-root-user', '--net', '--', 'true']).status === 0;
 
@@ -70,4 +71,10 @@ test('isolated namespace has no direct host or internet path, but can reach guar
 test('network namespace is mandatory in hardened CI', () => {
   if (process.env.PFX_REQUIRE_NETNS === '1') assert.ok(linux, 'Linux user+network namespace unavailable');
   else assert.ok(true);
+});
+
+
+test('isolated Chromium worker does not inherit host secrets', () => {
+  const env = sanitizedWorkerEnv({PATH:'/usr/bin',HOME:'/tmp',PFX_PREVIEW_TOKEN:'TOP-SECRET',AWS_SECRET_ACCESS_KEY:'LEAK',HTTP_PROXY:'http://internal'});
+  assert.deepEqual(env, { PATH:'/usr/bin',HOME:'/tmp' });
 });
