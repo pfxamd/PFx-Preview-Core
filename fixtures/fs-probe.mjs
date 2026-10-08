@@ -1,4 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+// Not a standalone program: refuse to expose host state in CI test discovery.
+if (process.pid !== 1 || !existsSync('/app/relay.js')) throw new Error('Probe is only permitted inside the isolated browser worker');
 const status = readFileSync('/proc/self/status', 'utf8');
 console.log(JSON.stringify({
   pid: process.pid,

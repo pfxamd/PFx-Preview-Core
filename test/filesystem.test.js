@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const path = fileURLToPath(new URL('../src/sandbox-bootstrap.sh', import.meta.url));
-const probe = fileURLToPath(new URL('./fixtures/fs-probe.js', import.meta.url));
+const probe = fileURLToPath(new URL('../fixtures/fs-probe.mjs', import.meta.url));
 const runner = spawnSync('unshare', ['--user', '--map-root-user', '--net', '--mount', '--pid', '--ipc', '--uts', '--fork', '--', 'true']);
 const linuxNamespaces = process.platform === 'linux' && runner.status === 0;
 
