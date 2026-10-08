@@ -5,7 +5,8 @@ on:
   workflow_dispatch:
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,50 +15,37 @@ jobs:
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm run check
       - run: npm run test:unit
-  chromium-integration:
+  browser-validation:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npx playwright-core install --with-deps chromium
-      - run: bash scripts/prepare-ci-netns.sh
-      - run: npm test
+      # Use a single browser installation for Chromium, external and load tests.
+      # Ubuntu 22.04 GitHub runner already provides the required shared libraries.
+      - name: Install Chromium
+        run: npx playwright-core install chromium
+      - name: Verify isolated runtime prerequisites
+        run: bash scripts/prepare-ci-netns.sh
+      - name: Chromium integration and security tests
+        run: npm test
         env:
           PFX_RUN_BROWSER: '1'
           PFX_REQUIRE_BROWSER_NETWORK: '1'
           PFX_REQUIRE_NETNS: '1'
-  external-smoke:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npx playwright-core install --with-deps chromium
-      - run: bash scripts/prepare-ci-netns.sh
-      - run: node --test test/integration.test.js
+      - name: External HTTPS website compatibility
+        if: github.event_name != 'pull_request'
+        run: node --test test/integration.test.js
         env:
           PFX_RUN_BROWSER: '1'
           PFX_RUN_EXTERNAL: '1'
           PFX_REQUIRE_BROWSER_NETWORK: '1'
           PFX_REQUIRE_NETNS: '1'
-  isolated-load:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[load]')
-    runs-on: ubuntu-22.04
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npx playwright-core install --with-deps chromium
-      - run: bash scripts/prepare-ci-netns.sh
-      - run: npm run bench:isolated
+      - name: Isolated 10/25/50 Core API stress load
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[load]')
+        run: npm run bench:isolated
         env:
           PFX_LOAD_TIERS: '10,25,50'
