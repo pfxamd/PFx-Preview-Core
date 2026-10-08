@@ -15,7 +15,7 @@ jobs:
       - run: npm run check
       - run: npm run test:unit
   chromium-integration:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,7 +30,7 @@ jobs:
           PFX_REQUIRE_NETNS: '1'
   external-smoke:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,3 +44,17 @@ jobs:
           PFX_RUN_EXTERNAL: '1'
           PFX_REQUIRE_BROWSER_NETWORK: '1'
           PFX_REQUIRE_NETNS: '1'
+  isolated-load:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[load]')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npx playwright-core install --with-deps chromium
+      - run: npm run bench:isolated
+        env:
+          PFX_LOAD_TIERS: '10,25,50'

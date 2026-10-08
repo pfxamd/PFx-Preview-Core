@@ -1,6 +1,6 @@
 # PFx Preview Core
 
-**Status:** `0.4.0-alpha.1` — experimental browser preview runtime. **Not safe for public deployment.**
+**Status:** `0.5.0-alpha.1` — experimental browser preview runtime. **Not safe for public deployment.**
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate user/network namespace with zero outbound routes**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
 
@@ -41,6 +41,14 @@ The stream is **event-driven**, not a guaranteed fixed-FPS video. CDP screencast
 - **OS-level network isolation is implemented and locally tested** using a Linux user/network namespace with no routes and a UNIX socket relay. Public deployment is still disabled pending OS-level filesystem/process restrictions, real-browser proxy integration results on CI, resource limits, and an independent security audit. Never expose this alpha release publicly.
 
 ## Testing
+
+### Load and lifecycle verification (experimental)
+
+- Browser rendering benchmark: `PFX_CHROMIUM_PATH=/usr/bin/chromium npm run bench:load` (10, 25, 50 lightweight contexts, with screenshot and DOM interaction).
+- Full isolated Core API benchmark: `npm run bench:isolated` (10, 25, 50 sessions through `PreviewCore.create`, pinned DNS egress proxy, real Chromium, click/screenshot and sampled CDP frames). This requires a Linux environment where network namespace navigation succeeds. GitHub Actions runs this separately on `workflow_dispatch` or on a commit whose message includes `[load]`.
+- Both benchmarks enforce a memory safety cutoff and report a failure rather than treating incomplete tiers as a pass. **These are synthetic tests, not public-site capacity guarantees.**
+- Core enforces 4 concurrent sessions by default, a 12-million-pixel limit per viewport, a 48-million-pixel total session budget, and a 30-minute maximum session lifetime. Raising `maxSessions` alone is not sufficient to increase physical capacity; host CPU/RAM, video streaming and application complexity still impose hard limits.
+- Shutdown waits for pending navigations to finish (and refuses new sessions), safely tears down proxy/namespace resources after crashes, and evicts long-lived streams. Tests cover concurrent startup/shutdown, recovery, pixel quotas and in-flight reservations.
 
 - Unit, network-namespace, security, proxy, and HTTP tests: `npm test`
 - Real browser tests: `PFX_RUN_BROWSER=1 npm test` after installing Chromium with the Playwright CLI
@@ -87,4 +95,4 @@ Public destination
 
 The Chromium child receives a **minimal environment allowlist** rather than server tokens. The relay, bridge, and guarded proxy shut down with the core. Platform requirements are intentionally strict; a host that forbids user namespaces cannot start the real-browser engine.
 
-**Still unverified:** CI outcomes and real external HTTPS navigation in a browser network that permits remote access. Tests that require network access are configured to fail CI if that capability is missing, rather than being accepted as successes. The OS-level isolation protects network paths only, not filesystem access, fork/CPU exhaustion or renderer escapes.
+**Verification status:** Previous GitHub Actions run [Core CI #8](https://github.com/pfxamd/PFx-Preview-Core/actions/runs/37757983575) passed real external HTTPS navigation and Chromium integration. New 10/25/50-session full-Core load test results must be checked in their own run. The OS-level isolation protects network paths only, **not filesystem access, fork/CPU exhaustion, process privileges, or renderer escapes**. Public deployment remains prohibited until those boundaries are independently secured and tested.

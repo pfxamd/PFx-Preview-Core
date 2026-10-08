@@ -5,7 +5,8 @@ import { HostBridge } from './host-bridge.js';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 
-const limits = { maxSessions: 4, idleMs: 10 * 60_000, navigationMs: 25_000 };
+const limits = { maxSessions: 4, idleMs: 10 * 60_000, maxAgeMs: 30 * 60_000,
+  navigationMs: 25_000, maxSessionPixels: 12_000_000, maxTotalPixels: 48_000_000 };
 
 export function sanitizedWorkerEnv(from = process.env) {
   // The network-namespace worker must never inherit API tokens, cloud credentials
@@ -25,6 +26,7 @@ const checkViewport = ({ width, height, deviceScaleFactor = 1 }) => {
 export class PreviewCore {
   constructor({ browserFactory, validate = validateTarget, egressFactory = () => new GuardedEgressProxy(), config = {} } = {}) {
     this.factory = browserFactory;
+    this.customFactory = browserFactory;
     this.validate = validate;
     this.egressFactory = egressFactory;
     this.egress = null;
@@ -33,11 +35,23 @@ export class PreviewCore {
     this.config = { ...limits, ...config };
     this.sessions = new Map();
     this.pendingCreates = 0;
+    this.pendingPixels = 0;
+    this.inFlightCreates = new Set();
     this.browser = null;
+    this.startPromise = null;
+    this.stopPromise = null;
+    this.stopping = false;
   }
   async start() {
+    if (this.stopPromise) await this.stopPromise;
     if (this.browser) return this;
-    const realBrowser = !this.factory;
+    if (this.startPromise) return this.startPromise;
+    this.startPromise = this.startInternal();
+    try { return await this.startPromise; }
+    finally { this.startPromise = null; }
+  }
+  async startInternal() {
+    const realBrowser = !this.customFactory;
     if (realBrowser && process.platform !== 'linux') throw new Error('Secure browser runtime currently requires Linux network namespaces');
     this.egress = this.egressFactory();
     try {
@@ -66,20 +80,41 @@ export class PreviewCore {
         });
       }
       this.browser = await this.factory();
+      this.browser.on?.('disconnected', () => {
+        // A browser crash must not leave stale sessions and streams available.
+        if (!this.stopping) void this.stop().catch(() => {});
+      });
       return this;
     } catch (error) {
       if (this.bridge) await this.bridge.stop().catch(() => {});
       this.bridge = null;
       await this.egress.stop().catch(() => {});
       this.egress = null;
+      this.proxyUrl = null;
+      this.factory = this.customFactory;
       throw error;
     }
   }
-  async create({ url, width = 1280, height = 800, deviceScaleFactor = 1 } = {}) {
-    if (!this.browser) throw new Error('Core not started');
-    checkViewport({ width, height, deviceScaleFactor });
-    if (this.sessions.size + this.pendingCreates >= this.config.maxSessions) throw new Error('Session capacity reached');
+  create({ url, width = 1280, height = 800, deviceScaleFactor = 1 } = {}) {
+    if (!this.browser || this.stopping) return Promise.reject(new Error('Core is not accepting sessions'));
+    try { checkViewport({ width, height, deviceScaleFactor }); }
+    catch (error) { return Promise.reject(error); }
+    if (this.sessions.size + this.pendingCreates >= this.config.maxSessions) return Promise.reject(new Error('Session capacity reached'));
+    const pixels = width * height * deviceScaleFactor ** 2;
+    if (pixels > this.config.maxSessionPixels || this.allocatedPixels() + pixels > this.config.maxTotalPixels) {
+      return Promise.reject(new Error('Rendering pixel budget exceeded'));
+    }
     this.pendingCreates++;
+    this.pendingPixels += pixels;
+    const creation = this.createInternal({ url, width, height, deviceScaleFactor, pixels });
+    this.inFlightCreates.add(creation);
+    void creation.finally(() => this.inFlightCreates.delete(creation)).catch(() => {});
+    return creation;
+  }
+  allocatedPixels() {
+    return this.pendingPixels + [...this.sessions.values()].reduce((sum, s) => sum + (s.pixels || 0), 0);
+  }
+  async createInternal({ url, width, height, deviceScaleFactor, pixels }) {
     let context;
     try {
       const target = await this.validate(url);
@@ -95,14 +130,18 @@ export class PreviewCore {
       });
       const page = await context.newPage();
       await this.loadPage(page, target);
+      if (this.stopping) throw new Error('Core is shutting down');
       const id = randomUUID();
-      this.sessions.set(id, { context, page, touched: Date.now(), stream: null });
-      return { id, url: page.url(), viewport: page.viewportSize() };
+      const result = { id, url: page.url(), viewport: page.viewportSize() };
+      this.sessions.set(id, { context, page, touched: Date.now(), createdAt: Date.now(), pixels, deviceScaleFactor, stream: null });
+      context = null;
+      return result;
     } catch (error) {
       if (context) await context.close().catch(() => {});
       throw error;
     } finally {
       this.pendingCreates--;
+      this.pendingPixels -= pixels;
     }
   }
   get(id) {
@@ -113,9 +152,23 @@ export class PreviewCore {
   }
   async resize(id, dimensions) {
     checkViewport({ ...dimensions, deviceScaleFactor: 1 });
-    const { page } = this.get(id);
-    await page.setViewportSize({ width: dimensions.width, height: dimensions.height });
-    return { viewport: page.viewportSize() };
+    const session = this.get(id);
+    const previous = session.resizing || Promise.resolve();
+    const operation = previous.catch(() => {}).then(async () => {
+      const pixels = dimensions.width * dimensions.height * (session.deviceScaleFactor || 1) ** 2;
+      if (pixels > this.config.maxSessionPixels || this.allocatedPixels() - (session.pixels || 0) + pixels > this.config.maxTotalPixels) {
+        throw new Error('Rendering pixel budget exceeded');
+      }
+      const prior = session.pixels || 0;
+      session.pixels = pixels; // Reserve synchronously before async resize.
+      try {
+        await session.page.setViewportSize({ width: dimensions.width, height: dimensions.height });
+        return { viewport: session.page.viewportSize() };
+      } catch (error) { session.pixels = prior; throw error; }
+    });
+    session.resizing = operation;
+    try { return await operation; }
+    finally { if (session.resizing === operation) session.resizing = null; }
   }
   async loadPage(page, target) {
     // A redirected main-frame response may be an HTTP 403 generated by the
@@ -196,18 +249,34 @@ export class PreviewCore {
     return true;
   }
   async prune(now = Date.now()) {
-    const expired = [...this.sessions].filter(([, s]) => now - s.touched > this.config.idleMs).map(([id]) => id);
+    // Streaming sessions have a hard maximum lifetime to prevent slot exhaustion.
+    const expired = [...this.sessions].filter(([, s]) =>
+      now - (s.createdAt ?? s.touched) > this.config.maxAgeMs ||
+      (!s.stream && !s.streamPending && now - s.touched > this.config.idleMs)
+    ).map(([id]) => id);
     await Promise.all(expired.map(id => this.close(id)));
     return expired.length;
   }
   async stop() {
-    await Promise.all([...this.sessions.keys()].map(id => this.close(id)));
-    if (this.browser) await this.browser.close();
+    if (this.stopPromise) return this.stopPromise;
+    this.stopping = true;
+    this.stopPromise = this.stopInternal();
+    try { await this.stopPromise; }
+    finally { this.stopping = false; this.stopPromise = null; }
+  }
+  async stopInternal() {
+    if (this.startPromise) await this.startPromise.catch(() => {});
+    await Promise.allSettled([...this.inFlightCreates]);
+    await Promise.allSettled([...this.sessions.keys()].map(id => this.close(id)));
+    // A crashed browser or failed context close must not strand the host-side
+    // network bridge or egress proxy after shutdown.
+    if (this.browser) await this.browser.close().catch(() => {});
     this.browser = null;
-    if (this.bridge) await this.bridge.stop();
+    if (this.bridge) await this.bridge.stop().catch(() => {});
     this.bridge = null;
-    if (this.egress) await this.egress.stop();
+    if (this.egress) await this.egress.stop().catch(() => {});
     this.egress = null;
     this.proxyUrl = null;
+    this.factory = this.customFactory;
   }
 }
