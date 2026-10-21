@@ -24,7 +24,7 @@ function installCore() {
     '{"name":"pfx-release-tools","version":"0.0.0","private":true,"type":"module"}\n');
   execFileSync('npm', ['install', '--prefix', toolsRoot, '--ignore-scripts', '--no-save',
     '--package-lock=false', '--no-audit', '--no-fund', pinnedArchive],
-    { cwd: toolsRoot, stdio: 'inherit' });
+    { cwd: toolsRoot, stdio: 'inherit', shell: process.platform === 'win32' });
   const actual = JSON.parse(readFileSync(resolve(installed, 'package.json'), 'utf8')).version;
   if (actual !== pinnedVersion) throw new Error('Unexpected Release Core version: ' + actual);
 }
