@@ -1,5 +1,7 @@
 # PFx Preview Core
 
+[![Core version](./version-badge.svg)](./version.json)
+
 **Status:** `0.9.0-rc.1` — **local HTTP API freeze candidate** for PFx Responsive. Browser preview runtime remains experimental and **not safe for public deployment**.
 
 Independent Node.js browser-control backend for PFx Responsive. Uses native Chromium rendering via `playwright-core`, isolated browser contexts, input events, PNG captures, and live event-driven JPEG frames through Chromium CDP and Server-Sent Events (SSE). No visual frontend is included. An internal **GuardedEgressProxy** resolves and pins destination IPs for each HTTP/HTTPS connection, rejects private/reserved addresses and disallowed ports, and limits connection counts and idle time. On Linux the default Chromium launcher runs in a **separate Linux user/network/mount/PID/IPC/UTS namespaces with zero outbound routes and a minimal chroot**; it reaches the guarded host-side proxy only through a private UNIX socket bridge.
@@ -218,3 +220,7 @@ It is NOT security-equivalent to the Linux sandbox and may never be used for
 public, hostile or multi-user hosting. Windows rejects `PFX_TENANTS_JSON`.
 The separate PFx Responsive tool can bundle Node.js, Chromium, and Core into one
 portable ZIP with a double-click executable. Internet is needed for target sites.
+
+## Automatic source versions
+
+The badge, `version.json`, and package manifests share one Git-derived version. Run `node .pfx/release.mjs --sync` before a local build. Full Git history is required. Rebuilding the same source keeps the same number; metadata-only bot commits do not advance it. See [.pfx/RELEASE.md](.pfx/RELEASE.md).

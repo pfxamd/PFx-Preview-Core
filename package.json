@@ -19,7 +19,8 @@
     "bench:compat": "node scripts/compatibility.js",
     "audit:os-quotas": "node scripts/audit-os-quotas.js",
     "test:contract": "node --test test/api-contract.test.js",
-    "test:client": "node --test test/client.test.js"
+    "test:client": "node --test test/client.test.js",
+    "release:version": "node .pfx/release.mjs --sync"
   },
   "dependencies": {
     "playwright-core": "1.57.0"

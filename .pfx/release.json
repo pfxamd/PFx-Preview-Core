@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "product": "PFx Preview Core",
+  "channel": "Alpha",
+  "baseVersion": "0.9.1-win-alpha.1",
+  "baseline": "e527e7841f7e6f61d730b523f36aacc327ad7f14",
+  "sourcePaths": [
+    "src",
+    "packages",
+    "crates",
+    "bindings",
+    "tokens",
+    "config",
+    "schema",
+    "scripts",
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".pfx",
+    ".github/workflows"
+  ],
+  "jsonVersions": [
+    "package.json"
+  ],
+  "cargoVersions": [],
+  "cargoNames": [],
+  "npmLocks": [],
+  "cargoLocks": []
+}

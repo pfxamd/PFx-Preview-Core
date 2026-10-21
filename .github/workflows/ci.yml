@@ -5,26 +5,40 @@ on:
   workflow_dispatch:
 jobs:
   unit:
+    permissions:
+      contents: write
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Resolve deterministic core version
+        run: node .pfx/release.mjs --sync
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm run check
       - name: Verify local HTTP API contract
         run: npm run test:contract
       - run: npm run test:unit
+      - name: Record current core version and badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node .pfx/release.mjs --publish
+
   browser-validation:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Resolve deterministic core version
+        run: node .pfx/release.mjs --sync
       - run: npm install --ignore-scripts --no-audit --no-fund
       # Use a single browser installation for Chromium, external and load tests.
       # Ubuntu 22.04 GitHub runner already provides the required shared libraries.
@@ -75,9 +89,13 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Resolve deterministic core version
+        run: node .pfx/release.mjs --sync
       - run: npm install --ignore-scripts --no-audit --no-fund
       - name: Install Chromium
         run: npx playwright-core install chromium
@@ -99,9 +117,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Resolve deterministic core version
+        run: node .pfx/release.mjs --sync
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npx playwright-core install chromium
       - name: Verify experimental single-operator Windows Core runtime

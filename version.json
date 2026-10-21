@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "core",
+  "product": "PFx Preview Core",
+  "channel": "Alpha",
+  "version": "0.9.1-win-alpha.1",
+  "label": "Alpha 0.9.1-win-alpha.1",
+  "commit": "e527e7841f7e6f61d730b523f36aacc327ad7f14",
+  "sourceDate": "2026-10-08T15:48:22+01:00"
+}
