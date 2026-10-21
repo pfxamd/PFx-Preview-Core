@@ -1,3 +1,18 @@
+/**
+ * ┌──────────────────────────────────────────────┐
+ * │                                              │
+ * │  PFxamd                                      │
+ * │  Ahmed                                       │
+ * │                                              │
+ * └──────────────────────────────────────────────┘
+ *
+ * @project     PFx Preview Core
+ * @author      Ahmed
+ * @brand       PFxamd
+ * @website     https://www.pfxamd.com
+ * @repository  https://github.com/pfxamd/PFx-Preview-Core
+ */
+
 import { randomUUID } from 'node:crypto';
 import { assertPublicURL, validateTarget } from './security.js';
 import { GuardedEgressProxy } from './egress.js';
