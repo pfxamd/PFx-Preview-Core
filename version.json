@@ -3,8 +3,8 @@
   "kind": "core",
   "product": "PFx Preview Core",
   "channel": "Alpha",
-  "version": "0.9.1-win-alpha.1",
-  "label": "Alpha 0.9.1-win-alpha.1",
-  "commit": "e527e7841f7e6f61d730b523f36aacc327ad7f14",
-  "sourceDate": "2026-10-08T15:48:22+01:00"
+  "version": "0.9.1-win-alpha.2",
+  "label": "Alpha 0.9.1-win-alpha.2",
+  "commit": "ad6fa14c3aa021306b4a063971a7e2a8a47bd6ea",
+  "sourceDate": "2026-10-21T14:52:47+01:00"
 }
