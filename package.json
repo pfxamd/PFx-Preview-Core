@@ -1,6 +1,6 @@
 {
   "name": "@pfxamd/preview-core",
-  "version": "0.9.1-win-alpha.2",
+  "version": "0.9.1-win-alpha.3",
   "description": "Isolated browser preview runtime with interactive CDP streaming",
   "private": true,
   "type": "module",
